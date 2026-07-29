@@ -1,0 +1,88 @@
+# sushi default config
+#
+# Lives at $XDG_CONFIG_HOME/sushi/config (usually ~/.config/sushi/config).
+# Hot-reloaded automatically on save -- no need to restart sushi.
+#
+# Everything below is already sushi's built-in default; this file exists so
+# you have something to copy and edit. Delete anything you don't want to
+# change, sushi will fall back to its built-in default for it.
+
+# --- global settings ---
+
+mod logo          # logo (mod4/super), alt, or ctrl
+terminal foot
+launcher fuzzel
+theme flat         # flat (title bar, no buttons) | classic (flat + min/max-restore/close buttons)
+                   # | simple (no title bar at all) | love (classic, but every button is a heart)
+                   # | win95 (beveled gray frame, navy title bar, little window icon)
+border-width 4
+title-height 18
+# title-font "monospace:size=10"   # fontconfig pattern; unset = swc's built-in default
+
+# title bar text color; also used for the button glyphs on themes that have
+# any (classic, love), so they always match. Colors are "rrggbb" hex,
+# always fully opaque. A leading '#' is fine too, but only quoted
+# ("#rrggbb") -- unquoted, '#' starts a comment and eats the rest of the
+# line, so an unquoted "#rrggbb" silently becomes no value at all.
+text-color-active ffffff
+text-color-inactive 2f2f2f
+
+# border/title bar background (flat/classic/simple/love share one color for
+# both; win95 ignores these and keeps its own fixed 3D palette)
+border-color-active 4c7a4c
+border-color-inactive a9c4a9
+
+cursor true             # draw the built-in Plan 9 style cursors
+cursor-color-in ffffff
+cursor-color-out 000000
+
+# --- bindings ---
+# <combo> is mod/shift/ctrl/alt joined with '+', ending in either a key name
+# (anything xkbcommon knows, e.g. Return, q, F1, ...) or buttonN (N=1,2,3).
+
+bind mod+return spawn foot
+bind mod+d spawn fuzzel
+bind mod+q close
+bind mod+shift+q quit
+bind mod+f fullscreen
+bind mod+c center
+
+bind mod+button1 move
+bind mod+button3 resize
+
+bind alt+Tab cycle-focus
+
+bind mod+1 workspace 1
+bind mod+2 workspace 2
+bind mod+3 workspace 3
+bind mod+4 workspace 4
+bind mod+5 workspace 5
+bind mod+6 workspace 6
+bind mod+7 workspace 7
+bind mod+8 workspace 8
+bind mod+9 workspace 9
+bind mod+0 workspace 10
+
+bind mod+shift+1 move-to-workspace 1
+bind mod+shift+2 move-to-workspace 2
+bind mod+shift+3 move-to-workspace 3
+bind mod+shift+4 move-to-workspace 4
+bind mod+shift+5 move-to-workspace 5
+bind mod+shift+6 move-to-workspace 6
+bind mod+shift+7 move-to-workspace 7
+bind mod+shift+8 move-to-workspace 8
+bind mod+shift+9 move-to-workspace 9
+bind mod+shift+0 move-to-workspace 10
+
+# --- per-app_id rules ---
+# app_id is matched exactly, or as a prefix if the pattern ends in '*'.
+# Uncomment/edit as needed:
+
+# window "mpv" {
+#     border false
+#     title false
+# }
+#
+# window "firefox*" {
+#     workspace 2
+# }
