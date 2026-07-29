@@ -247,14 +247,22 @@ workspace_switch(int workspace)
 
 	sushi.active_workspace = workspace;
 
+	/* Bottom-up. swc_window_show() raises the window it reveals, so showing
+	 * them in list order (which is top-first) would leave the bottom-most
+	 * one raised last and on top -- inverting the stack on every switch.
+	 * Revealing from the bottom means each window is raised over the ones
+	 * already shown, reproducing the order the list describes.
+	 *
+	 * first_visible follows the same reversal: reassigning on every match
+	 * leaves it holding the last one seen, which is the first in list order
+	 * and so the one that ends up on top. */
 	struct sushi_window *w, *first_visible = NULL;
-	wl_list_for_each(w, &sushi.windows, link) {
+	wl_list_for_each_reverse(w, &sushi.windows, link) {
 		if (w->workspace == workspace) {
 			if (!w->positioned)
 				window_center(w);
 			swc_window_show(w->swc);
-			if (!first_visible)
-				first_visible = w;
+			first_visible = w;
 		} else {
 			swc_window_hide(w->swc);
 		}

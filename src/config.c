@@ -2,6 +2,8 @@
 #include "config.h"
 
 #include <ctype.h>
+#include <stdarg.h>
+#include <unistd.h>
 #include <linux/input-event-codes.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,6 +13,78 @@
 #include <xkbcommon/xkbcommon.h>
 
 #include <swc.h>
+
+/* Diagnostics.
+ *
+ * The runtime loader ignores anything it does not understand: a config with a
+ * typo in it works, minus the line that was dropped. That is the right
+ * behaviour for a compositor mid-session and useless for finding the typo, so
+ * the parse helpers report through here instead of dropping quietly.
+ *
+ * Kept in file scope rather than threaded through every helper, which would
+ * touch all of them for one caller. NULL outside config_validate(), so the
+ * runtime path stays silent. Parsing is not reentrant. */
+struct config_diag {
+	const char *path;
+	int line;
+	int errors;
+	int warnings;
+};
+
+static struct config_diag *diag;
+
+static void
+diag_at(bool error, const char *fmt, ...)
+{
+	va_list ap;
+
+	if (!diag)
+		return;
+
+	if (error)
+		diag->errors++;
+	else
+		diag->warnings++;
+
+	fprintf(stdout, "%s:%d: %s: ", diag->path, diag->line,
+	        error ? "error" : "warning");
+	va_start(ap, fmt);
+	vfprintf(stdout, fmt, ap);
+	va_end(ap);
+	fputc('\n', stdout);
+}
+
+/* Whether `cmd` can actually be started. Only checked by the validator; a
+ * missing program is a warning, since it may just not be installed yet. */
+static bool
+on_path(const char *cmd)
+{
+	if (strchr(cmd, '/'))
+		return access(cmd, X_OK) == 0;
+
+	const char *path = getenv("PATH");
+	if (!path)
+		return true; /* nothing to check against; do not cry wolf */
+
+	char *copy = strdup(path), *save = NULL;
+	if (!copy)
+		return true;
+	bool found = false;
+
+	for (char *dir = strtok_r(copy, ":", &save); dir;
+	     dir = strtok_r(NULL, ":", &save)) {
+		char buf[1024];
+		if (snprintf(buf, sizeof(buf), "%s/%s", dir, cmd) >= (int)sizeof(buf))
+			continue;
+		if (access(buf, X_OK) == 0) {
+			found = true;
+			break;
+		}
+	}
+
+	free(copy);
+	return found;
+}
 
 #define MAX_LINE 512
 #define MAX_TOKENS 32
@@ -122,11 +196,19 @@ config_defaults(struct sushi_config *cfg)
 	cfg->text_color_inactive = 0xFF2F2F2F;
 	cfg->border_color_active = 0xFF4C7A4C;
 	cfg->border_color_inactive = 0xFFA9C4A9;
+	/* Keyboard layout fields stay NULL on purpose: that hands the choice to
+	 * libxkbcommon, which honors XKB_DEFAULT_LAYOUT and friends. Naming a
+	 * default here would silently override whatever the user set outside
+	 * sushi. The repeat values match swc's own defaults. */
+	cfg->repeat_rate = 40;
+	cfg->repeat_delay = 500;
 	cfg->cursor_theme = true;
 	cfg->cursor_color_in = 0xFFFFFFFF;
 	cfg->cursor_color_out = 0xFF000000;
 	wl_list_init(&cfg->bindings);
 	wl_list_init(&cfg->rules);
+	wl_list_init(&cfg->autostart);
+	wl_list_init(&cfg->input_rules);
 }
 
 static void
@@ -227,21 +309,33 @@ static void
 parse_bind_line(struct sushi_config *cfg, char **tok, int ntok)
 {
 	/* bind <combo> <action> [args...] */
-	if (ntok < 3)
+	if (ntok < 3) {
+		diag_at(true, "bind needs a combo and an action");
 		return;
+	}
 
 	enum sushi_bind_type type;
 	uint32_t mods, value;
-	if (!parse_combo(cfg, tok[1], &type, &mods, &value))
+	/* parse_combo() mutates the token, so keep a copy for the message. */
+	char combo[128];
+	snprintf(combo, sizeof(combo), "%s", tok[1]);
+	if (!parse_combo(cfg, tok[1], &type, &mods, &value)) {
+		diag_at(true, "cannot parse the combo '%s'", combo);
 		return;
+	}
 
 	const char *action = tok[2];
 	struct sushi_binding *b;
 
 	if (!strcmp(action, "spawn")) {
 		int argc = ntok - 3;
-		if (argc <= 0)
+		if (argc <= 0) {
+			diag_at(true, "bind %s spawn needs a command", combo);
 			return;
+		}
+		if (!on_path(tok[3]))
+			diag_at(false, "bind %s spawns '%s', not found on PATH", combo,
+			        tok[3]);
 		b = add_binding(cfg, type, mods, value);
 		b->action = ACTION_SPAWN;
 		b->spawn_argv = calloc(argc + 1, sizeof(char *));
@@ -272,18 +366,20 @@ parse_bind_line(struct sushi_config *cfg, char **tok, int ntok)
 	} else if (!strcmp(action, "cycle-focus")) {
 		b = add_binding(cfg, type, mods, value);
 		b->action = ACTION_CYCLE_FOCUS;
-	} else if (!strcmp(action, "workspace")) {
-		if (ntok < 4)
+	} else if (!strcmp(action, "workspace") ||
+	           !strcmp(action, "move-to-workspace")) {
+		if (ntok < 4) {
+			diag_at(true, "bind %s %s needs a workspace number", combo, action);
 			return;
+		}
 		b = add_binding(cfg, type, mods, value);
-		b->action = ACTION_WORKSPACE;
+		b->action = !strcmp(action, "workspace") ? ACTION_WORKSPACE
+		                                        : ACTION_MOVE_TO_WORKSPACE;
 		b->arg = atoi(tok[3]);
-	} else if (!strcmp(action, "move-to-workspace")) {
-		if (ntok < 4)
-			return;
-		b = add_binding(cfg, type, mods, value);
-		b->action = ACTION_MOVE_TO_WORKSPACE;
-		b->arg = atoi(tok[3]);
+		if (b->arg < 1 || b->arg > 10)
+			diag_at(true, "workspace %d is outside 1..10", b->arg);
+	} else {
+		diag_at(true, "unknown action '%s'", action);
 	}
 }
 
@@ -304,18 +400,24 @@ rule_find_or_create(struct sushi_config *cfg, const char *pattern)
 static void
 parse_rule_line(struct sushi_rule *r, char **tok, int ntok)
 {
-	if (ntok < 2)
+	if (ntok < 2) {
+		diag_at(true, "'%s' inside a window block needs a value", tok[0]);
 		return;
+	}
 
 	if (!strcmp(tok[0], "workspace")) {
 		r->has_workspace = true;
 		r->workspace = atoi(tok[1]);
+		if (r->workspace < 1 || r->workspace > 10)
+			diag_at(true, "workspace %d is outside 1..10", r->workspace);
 	} else if (!strcmp(tok[0], "title")) {
 		r->has_title = true;
 		r->title = truthy(tok[1]);
 	} else if (!strcmp(tok[0], "border")) {
 		r->has_border = true;
 		r->border = truthy(tok[1]);
+	} else {
+		diag_at(false, "unknown window setting '%s'", tok[0]);
 	}
 }
 
@@ -328,22 +430,34 @@ parse_rule_line(struct sushi_rule *r, char **tok, int ntok)
 static void
 parse_global_line(struct sushi_config *cfg, char **tok, int ntok)
 {
-	if (ntok < 2)
+	if (ntok < 2) {
+		diag_at(true, "'%s' needs a value", tok[0]);
 		return;
+	}
 
 	if (!strcmp(tok[0], "mod")) {
 		uint32_t m;
 		if (parse_mod_name(tok[1], &m))
 			cfg->mod = m;
+		else
+			diag_at(true, "mod '%s' is not logo, alt, ctrl or shift", tok[1]);
 	} else if (!strcmp(tok[0], "terminal")) {
 		free(cfg->terminal);
 		cfg->terminal = xstrdup(tok[1]);
+		if (!on_path(tok[1]))
+			diag_at(false, "terminal '%s' not found on PATH", tok[1]);
 	} else if (!strcmp(tok[0], "launcher")) {
 		free(cfg->launcher);
 		cfg->launcher = xstrdup(tok[1]);
+		if (!on_path(tok[1]))
+			diag_at(false, "launcher '%s' not found on PATH", tok[1]);
 	} else if (!strcmp(tok[0], "theme")) {
 		free(cfg->theme);
 		cfg->theme = xstrdup(tok[1]);
+		if (strcmp(tok[1], "flat") && strcmp(tok[1], "classic") &&
+		    strcmp(tok[1], "simple") && strcmp(tok[1], "love") &&
+		    strcmp(tok[1], "win95"))
+			diag_at(true, "unknown theme '%s'; falling back to flat", tok[1]);
 	} else if (!strcmp(tok[0], "border-width")) {
 		cfg->border_width = atoi(tok[1]);
 	} else if (!strcmp(tok[0], "title-height")) {
@@ -359,12 +473,33 @@ parse_global_line(struct sushi_config *cfg, char **tok, int ntok)
 		cfg->border_color_active = parse_color(tok[1]);
 	} else if (!strcmp(tok[0], "border-color-inactive")) {
 		cfg->border_color_inactive = parse_color(tok[1]);
+	} else if (!strcmp(tok[0], "keyboard-layout")) {
+		free(cfg->kb_layout);
+		cfg->kb_layout = xstrdup(tok[1]);
+	} else if (!strcmp(tok[0], "keyboard-variant")) {
+		free(cfg->kb_variant);
+		cfg->kb_variant = xstrdup(tok[1]);
+	} else if (!strcmp(tok[0], "keyboard-options")) {
+		free(cfg->kb_options);
+		cfg->kb_options = xstrdup(tok[1]);
+	} else if (!strcmp(tok[0], "keyboard-model")) {
+		free(cfg->kb_model);
+		cfg->kb_model = xstrdup(tok[1]);
+	} else if (!strcmp(tok[0], "keyboard-rules")) {
+		free(cfg->kb_rules);
+		cfg->kb_rules = xstrdup(tok[1]);
+	} else if (!strcmp(tok[0], "repeat-rate")) {
+		cfg->repeat_rate = atoi(tok[1]);
+	} else if (!strcmp(tok[0], "repeat-delay")) {
+		cfg->repeat_delay = atoi(tok[1]);
 	} else if (!strcmp(tok[0], "cursor")) {
 		cfg->cursor_theme = truthy(tok[1]);
 	} else if (!strcmp(tok[0], "cursor-color-in")) {
 		cfg->cursor_color_in = parse_color(tok[1]);
 	} else if (!strcmp(tok[0], "cursor-color-out")) {
 		cfg->cursor_color_out = parse_color(tok[1]);
+	} else {
+		diag_at(false, "unknown setting '%s'", tok[0]);
 	}
 }
 
@@ -431,20 +566,151 @@ add_default_bindings(struct sushi_config *cfg)
 /* One pass over the file. When globals_only is set, bind/window lines are
  * ignored (used for the pre-pass that resolves mod/terminal/launcher before
  * the defaults are seeded); otherwise the full grammar is parsed. */
+static enum sushi_tri
+parse_tri(const char *s)
+{
+	/* "enabled"/"disabled" as well as the booleans truthy() knows, since
+	 * that is how libinput's own documentation spells these. */
+	if (!strcmp(s, "enabled") || truthy(s))
+		return TRI_ON;
+	return TRI_OFF;
+}
+
+static void
+parse_input_line(struct sushi_input_rule *r, char **tok, int ntok)
+{
+	if (ntok < 2) {
+		diag_at(true, "'%s' inside an input block needs a value", tok[0]);
+		return;
+	}
+
+	if (!strcmp(tok[0], "natural-scroll")) {
+		r->natural_scroll = parse_tri(tok[1]);
+	} else if (!strcmp(tok[0], "tap")) {
+		r->tap = parse_tri(tok[1]);
+	} else if (!strcmp(tok[0], "drag")) {
+		r->drag = parse_tri(tok[1]);
+	} else if (!strcmp(tok[0], "drag-lock")) {
+		r->drag_lock = parse_tri(tok[1]);
+	} else if (!strcmp(tok[0], "disable-while-typing")) {
+		r->disable_while_typing = parse_tri(tok[1]);
+	} else if (!strcmp(tok[0], "left-handed")) {
+		r->left_handed = parse_tri(tok[1]);
+	} else if (!strcmp(tok[0], "middle-emulation")) {
+		r->middle_emulation = parse_tri(tok[1]);
+	} else if (!strcmp(tok[0], "accel-profile")) {
+		if (!strcmp(tok[1], "flat"))
+			r->accel_profile = ACCEL_FLAT;
+		else if (!strcmp(tok[1], "adaptive"))
+			r->accel_profile = ACCEL_ADAPTIVE;
+		else
+			diag_at(true, "accel-profile '%s' is not flat or adaptive", tok[1]);
+	} else if (!strcmp(tok[0], "accel-speed")) {
+		char *end = NULL;
+		r->accel_speed = strtod(tok[1], &end);
+		r->has_accel_speed = true;
+		if (end == tok[1] || (end && *end))
+			diag_at(true, "accel-speed '%s' is not a number", tok[1]);
+		else if (r->accel_speed < -1.0 || r->accel_speed > 1.0)
+			diag_at(true, "accel-speed %.2f is outside -1.0..1.0",
+			        r->accel_speed);
+	} else if (!strcmp(tok[0], "scroll-method")) {
+		if (!strcmp(tok[1], "none"))
+			r->scroll_method = SCROLL_NONE;
+		else if (!strcmp(tok[1], "two-finger"))
+			r->scroll_method = SCROLL_TWO_FINGER;
+		else if (!strcmp(tok[1], "edge"))
+			r->scroll_method = SCROLL_EDGE;
+		else if (!strcmp(tok[1], "button"))
+			r->scroll_method = SCROLL_BUTTON;
+		else
+			diag_at(true, "scroll-method '%s' is not two-finger, edge, "
+			              "button or none", tok[1]);
+	} else {
+		diag_at(false, "unknown input setting '%s'", tok[0]);
+	}
+}
+
+static struct sushi_input_rule *
+input_rule_find_or_create(struct sushi_config *cfg, const char *pattern)
+{
+	struct sushi_input_rule *r;
+
+	wl_list_for_each(r, &cfg->input_rules, link) {
+		if (!strcmp(r->pattern, pattern))
+			return r;
+	}
+
+	r = calloc(1, sizeof(*r));
+	if (!r)
+		return NULL;
+	r->pattern = xstrdup(pattern);
+	/* Appended so that, for a device matching several patterns, the later
+	 * block in the file wins. */
+	wl_list_insert(cfg->input_rules.prev, &r->link);
+	return r;
+}
+
+static void
+parse_autostart_line(struct sushi_config *cfg, char **tok, int ntok)
+{
+	if (ntok < 2) {
+		diag_at(true, "autostart needs a command");
+		return;
+	}
+
+	if (!on_path(tok[1]))
+		diag_at(false, "autostart '%s' not found on PATH", tok[1]);
+
+	struct sushi_autostart *a = calloc(1, sizeof(*a));
+	if (!a)
+		return;
+
+	int argc = ntok - 1;
+	a->spawn_argv = calloc(argc + 1, sizeof(char *));
+	if (!a->spawn_argv) {
+		free(a);
+		return;
+	}
+	for (int i = 0; i < argc; i++)
+		a->spawn_argv[i] = xstrdup(tok[1 + i]);
+	a->spawn_argv[argc] = NULL;
+
+	/* Appended, so entries run in the order they appear in the file. */
+	wl_list_insert(cfg->autostart.prev, &a->link);
+}
+
 static void
 parse_stream(struct sushi_config *cfg, FILE *f, bool globals_only)
 {
 	char line[MAX_LINE];
 	struct sushi_rule *in_rule = NULL;
+	struct sushi_input_rule *in_input = NULL;
+
+	if (diag)
+		diag->line = 0;
 
 	while (fgets(line, sizeof(line), f)) {
 		char *tok[MAX_TOKENS];
-		int ntok = tokenize(line, tok, MAX_TOKENS);
+		int ntok;
+
+		if (diag)
+			diag->line++;
+
+		ntok = tokenize(line, tok, MAX_TOKENS);
 		if (ntok == 0)
 			continue;
 
 		if (globals_only) {
 			parse_global_line(cfg, tok, ntok);
+			continue;
+		}
+
+		if (in_input) {
+			if (!strcmp(tok[0], "}"))
+				in_input = NULL;
+			else
+				parse_input_line(in_input, tok, ntok);
 			continue;
 		}
 
@@ -456,7 +722,20 @@ parse_stream(struct sushi_config *cfg, FILE *f, bool globals_only)
 			continue;
 		}
 
-		if (!strcmp(tok[0], "window") && ntok >= 2) {
+		if (!strcmp(tok[0], "input")) {
+			if (ntok < 2) {
+				diag_at(true, "input needs a pattern");
+				continue;
+			}
+			in_input = input_rule_find_or_create(cfg, tok[1]);
+			continue;
+		}
+
+		if (!strcmp(tok[0], "window")) {
+			if (ntok < 2) {
+				diag_at(true, "window needs an app_id pattern");
+				continue;
+			}
 			in_rule = rule_find_or_create(cfg, tok[1]);
 			continue;
 		}
@@ -466,8 +745,113 @@ parse_stream(struct sushi_config *cfg, FILE *f, bool globals_only)
 			continue;
 		}
 
+		/* Handled here rather than in parse_global_line(), which runs over
+		 * every line in both passes -- appending from there would add each
+		 * entry twice. */
+		if (!strcmp(tok[0], "autostart")) {
+			parse_autostart_line(cfg, tok, ntok);
+			continue;
+		}
+
 		parse_global_line(cfg, tok, ntok);
 	}
+
+	if (in_rule)
+		diag_at(true, "window block is never closed with '}'");
+	if (in_input)
+		diag_at(true, "input block is never closed with '}'");
+}
+
+bool
+config_validate(const char *path)
+{
+	struct config_diag d = {0};
+	struct sushi_config *cfg = calloc(1, sizeof(*cfg));
+	const char *used = path;
+	FILE *f;
+
+	if (!cfg)
+		return false;
+	config_defaults(cfg);
+
+	f = path ? fopen(path, "r") : NULL;
+	if (f) {
+		printf("checking %s\n", path);
+	} else {
+		used = SUSHI_DEFAULT_CONFIG;
+		f = fopen(used, "r");
+		if (f) {
+			printf("no config at %s\n", path ? path : "(none)");
+			printf("using the installed default: %s\n", used);
+		} else {
+			printf("no config at %s\n", path ? path : "(none)");
+			printf("no installed default at %s either\n", used);
+			printf("sushi would run on its built-in defaults\n");
+		}
+	}
+
+	if (f) {
+		/* Globals first, exactly as config_load() does, but quietly: this
+		 * pass sends every line to parse_global_line(), block contents
+		 * included, so reporting from it would invent errors for lines that
+		 * the second pass handles correctly. */
+		parse_stream(cfg, f, true);
+		rewind(f);
+		add_default_bindings(cfg);
+
+		d.path = used;
+		diag = &d;
+		parse_stream(cfg, f, false);
+		diag = NULL;
+		fclose(f);
+	}
+
+	if (cfg->repeat_rate < 0)
+		printf("%s: error: repeat-rate %d is negative\n", used,
+		       cfg->repeat_rate), d.errors++;
+	if (cfg->repeat_delay < 0)
+		printf("%s: error: repeat-delay %d is negative\n", used,
+		       cfg->repeat_delay), d.errors++;
+
+	/* The layout is only rejected at runtime, by which point the session is
+	 * already up; xkbcommon can tell us here instead. */
+	if (cfg->kb_rules || cfg->kb_model || cfg->kb_layout || cfg->kb_variant ||
+	    cfg->kb_options) {
+		/* xkbcommon writes its own (useful) diagnosis to stderr, unbuffered;
+		 * without this our buffered lines would all land after it. */
+		fflush(stdout);
+
+		struct xkb_rule_names names = {
+			.rules = cfg->kb_rules,
+			.model = cfg->kb_model,
+			.layout = cfg->kb_layout,
+			.variant = cfg->kb_variant,
+			.options = cfg->kb_options,
+		};
+		struct xkb_context *ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+		struct xkb_keymap *keymap =
+		    ctx ? xkb_keymap_new_from_names(ctx, &names, 0) : NULL;
+
+		if (keymap) {
+			xkb_keymap_unref(keymap);
+		} else {
+			printf("%s: error: xkbcommon cannot build the keyboard layout "
+			       "(layout '%s', variant '%s', options '%s')\n",
+			       used, cfg->kb_layout ? cfg->kb_layout : "",
+			       cfg->kb_variant ? cfg->kb_variant : "",
+			       cfg->kb_options ? cfg->kb_options : "");
+			d.errors++;
+		}
+		if (ctx)
+			xkb_context_unref(ctx);
+	}
+
+	config_free(cfg);
+
+	printf("\n%d error%s, %d warning%s\n", d.errors, d.errors == 1 ? "" : "s",
+	       d.warnings, d.warnings == 1 ? "" : "s");
+
+	return d.errors == 0;
 }
 
 struct sushi_config *
@@ -477,6 +861,17 @@ config_load(const char *path)
 	config_defaults(cfg);
 
 	FILE *f = path ? fopen(path, "r") : NULL;
+
+	/* With no config of their own, fall back to the one installed
+	 * alongside sushi, so the shipped defaults are the documented file
+	 * rather than a second copy of them buried in config_defaults(). */
+	if (!f) {
+		f = fopen(SUSHI_DEFAULT_CONFIG, "r");
+		if (f)
+			fprintf(stderr, "sushi: no config at %s, using %s\n",
+			        path ? path : "(none)", SUSHI_DEFAULT_CONFIG);
+	}
+
 	if (f) {
 		parse_stream(cfg, f, true);
 		rewind(f);
@@ -502,6 +897,22 @@ config_free(struct sushi_config *cfg)
 	wl_list_for_each_safe(b, btmp, &cfg->bindings, link)
 		binding_free(b);
 
+	struct sushi_input_rule *ir, *irtmp;
+	wl_list_for_each_safe(ir, irtmp, &cfg->input_rules, link) {
+		wl_list_remove(&ir->link);
+		free(ir->pattern);
+		free(ir);
+	}
+
+	struct sushi_autostart *a, *atmp;
+	wl_list_for_each_safe(a, atmp, &cfg->autostart, link) {
+		wl_list_remove(&a->link);
+		for (int i = 0; a->spawn_argv && a->spawn_argv[i]; i++)
+			free(a->spawn_argv[i]);
+		free(a->spawn_argv);
+		free(a);
+	}
+
 	struct sushi_rule *r, *rtmp;
 	wl_list_for_each_safe(r, rtmp, &cfg->rules, link) {
 		wl_list_remove(&r->link);
@@ -513,6 +924,11 @@ config_free(struct sushi_config *cfg)
 	free(cfg->launcher);
 	free(cfg->theme);
 	free(cfg->title_font);
+	free(cfg->kb_layout);
+	free(cfg->kb_variant);
+	free(cfg->kb_options);
+	free(cfg->kb_model);
+	free(cfg->kb_rules);
 	free(cfg);
 }
 

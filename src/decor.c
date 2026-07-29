@@ -583,6 +583,21 @@ decor_apply(struct sushi_window *win)
 	enum theme_id theme = theme_from_name(cfg->theme);
 	bool active = win == sushi.focused;
 	bool has_buttons = theme_has_buttons(theme);
+
+	/* A fullscreen window has no decoration, and this runs on every focus
+	 * and title change -- a browser retitling itself as a video plays would
+	 * otherwise hand its own decoration back mid-fullscreen. The insets go
+	 * with it, so the hit-tests do not reserve a title bar band that is not
+	 * on screen. */
+	if (win->fullscreen) {
+		win->decor_top = 0;
+		win->decor_bottom = 0;
+		win->decor_left = 0;
+		win->decor_right = 0;
+		swc_window_set_decor(win->swc, NULL);
+		return;
+	}
+
 	/* `simple` never shows a title bar, regardless of any per-app_id
 	 * "title" rule; the other themes still honor that rule normally. */
 	bool show_title = win->decor_title && theme_has_titlebar(theme);
@@ -679,6 +694,22 @@ decor_apply(struct sushi_window *win)
 	swc_window_set_decor(win->swc, &decor);
 
 	free(tr_buf);
+}
+
+bool
+decor_window_contains(struct sushi_window *win, int32_t px, int32_t py)
+{
+	struct swc_rectangle geom;
+
+	if (!swc_window_get_geometry(win->swc, &geom))
+		return false;
+
+	int32_t x0 = geom.x - (int32_t)win->decor_left;
+	int32_t y0 = geom.y - (int32_t)win->decor_top;
+	int32_t x1 = geom.x + (int32_t)geom.width + (int32_t)win->decor_right;
+	int32_t y1 = geom.y + (int32_t)geom.height + (int32_t)win->decor_bottom;
+
+	return px >= x0 && px < x1 && py >= y0 && py < y1;
 }
 
 enum sushi_hit_kind

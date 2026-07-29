@@ -74,6 +74,7 @@ struct sushi_state {
 	char *config_path;
 
 	struct wl_list outputs; /* sushi_output::link */
+	struct wl_list devices; /* sushi_device::link, for input config reloads */
 	struct wl_list windows; /* sushi_window::link, front-to-back stacking */
 
 	struct sushi_window *focused;

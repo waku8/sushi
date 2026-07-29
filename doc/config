@@ -1,14 +1,14 @@
 # sushi default config
 #
 # Lives at $XDG_CONFIG_HOME/sushi/config (usually ~/.config/sushi/config).
-# Hot-reloaded automatically on save -- no need to restart sushi.
+# Hot-reloaded automatically on save, no need to restart sushi.
 #
-# Everything below is already sushi's built-in default; this file exists so
-# you have something to copy and edit. Delete anything you don't want to
-# change, sushi will fall back to its built-in default for it.
+# Run `sushi validate` to check this file: it reports which file would
+# actually be used (this one, your own, or the built-in defaults) and prints
+# everything sushi would otherwise ignore in silence. Exit status is 0 when
+# there are no errors, so it works in a pre-commit hook or a login script.
 
 # --- global settings ---
-
 mod logo          # logo (mod4/super), alt, or ctrl
 terminal foot
 launcher fuzzel
@@ -17,24 +17,34 @@ theme flat         # flat (title bar, no buttons) | classic (flat + min/max-rest
                    # | win95 (beveled gray frame, navy title bar, little window icon)
 border-width 4
 title-height 18
-# title-font "monospace:size=10"   # fontconfig pattern; unset = swc's built-in default
-
-# title bar text color; also used for the button glyphs on themes that have
-# any (classic, love), so they always match. Colors are "rrggbb" hex,
-# always fully opaque. A leading '#' is fine too, but only quoted
-# ("#rrggbb") -- unquoted, '#' starts a comment and eats the rest of the
-# line, so an unquoted "#rrggbb" silently becomes no value at all.
+title-font "terminus:size=10"   # fontconfig pattern; unset = swc's built-in default
 text-color-active ffffff
 text-color-inactive 2f2f2f
 
-# border/title bar background (flat/classic/simple/love share one color for
-# both; win95 ignores these and keeps its own fixed 3D palette)
+# border/title bar background (flat/classic/simple/love share one color; win95 ignores these and keeps its own fixed 3D palette)
 border-color-active 4c7a4c
 border-color-inactive a9c4a9
 
-cursor true             # draw the built-in Plan 9 style cursors
+cursor true             # true = use nein cursor, false = use default
 cursor-color-in ffffff
 cursor-color-out 000000
+
+# --- keyboard ---
+# XKB layout selection. Leave any of these out and libxkbcommon decides,
+# which means the XKB_DEFAULT_* environment variables still work. Changing
+# them and saving takes effect immediately -- no restart, no relogin.
+#
+# keyboard-layout us          # or a switchable pair: "us,br"
+# keyboard-variant intl       # e.g. intl, altgr-intl, nodeadkeys
+# keyboard-options grp:alt_shift_toggle,ctrl:nocaps
+# keyboard-model pc105
+# keyboard-rules evdev
+#
+# An invalid layout is refused and the current one kept, so a typo here
+# costs a warning on stderr rather than a keyboard.
+
+repeat-rate 40          # key repeats per second
+repeat-delay 500        # milliseconds held before repeating starts
 
 # --- bindings ---
 # <combo> is mod/shift/ctrl/alt joined with '+', ending in either a key name
@@ -86,3 +96,51 @@ bind mod+shift+0 move-to-workspace 10
 # window "firefox*" {
 #     workspace 2
 # }
+
+# --- input devices ---
+# libinput settings, per group of devices. Patterns:
+#   type:touchpad   type:mouse   type:keyboard
+#   "Some Device Name"   or a prefix: "Logitech*"
+#   *               every device
+#
+# For a device matching more than one block the later block wins, so put the
+# broad ones first. Anything left out keeps libinput's own default -- that is
+# not the same as writing false. Re-applied on reload.
+#
+# Toggles take enabled/disabled (true/false/yes/no/1/0 also work).
+#
+# A setting the device cannot do is ignored and reported on stderr, e.g. `tap`
+# under a "type:mouse" block. Not reported inside a `*` block -- that one means
+# "whatever applies", so touchpad settings in it are expected to be skipped on
+# a machine without one.
+
+# input * {
+#     accel-profile flat        # flat (no acceleration) | adaptive
+#     accel-speed 0.0           # -1.0 slowest .. 1.0 fastest
+# }
+#
+# input "type:mouse" {
+#     natural-scroll disabled
+#     middle-emulation disabled
+#     left-handed disabled
+# }
+#
+# input "type:touchpad" {
+#     natural-scroll enabled
+#     tap enabled               # tap to click
+#     drag enabled              # tap and drag
+#     drag-lock disabled
+#     disable-while-typing enabled
+#     scroll-method two-finger  # two-finger | edge | button | none
+# }
+
+# --- autostart ---
+# Programs launched once, when the session starts. One per line, in the order
+# they should run. Quote an argument to keep spaces in it.
+#
+# Not re-run on reload: saving this file would otherwise open another copy of
+# everything here every time. Adding an entry takes effect at the next login.
+
+# autostart foot
+# autostart waybar
+# autostart swaybg -i "/home/me/pictures/wall paper.png"

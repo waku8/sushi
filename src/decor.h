@@ -13,6 +13,13 @@
  * change, maximize toggle, title change, theme/rule reload. */
 void decor_apply(struct sushi_window *win);
 
+/* Whether a compositor-global point falls anywhere within the window's
+ * outer rectangle -- decorations included, not just the content area.
+ * Used to stop a hit-test walk at the topmost window covering a point,
+ * since decor_hit_test() alone cannot tell "not my decoration" apart from
+ * "not my window at all". */
+bool decor_window_contains(struct sushi_window *win, int32_t x, int32_t y);
+
 /* Hit-tests a compositor-global point against the window's *current*
  * decoration (geometry is re-read live, so this is always accurate even
  * mid-drag without needing a cached, potentially-stale hitbox). Returns

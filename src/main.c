@@ -2,9 +2,12 @@
 #include "sushi.h"
 #include "cursor.h"
 #include "decor.h"
+#include "input.h"
 
+#include <fcntl.h>
 #include <linux/input-event-codes.h>
 #include <signal.h>
+#include <ucontext.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -52,6 +55,18 @@ spawn(char **argv)
 		execvp(argv[0], argv);
 		_exit(EXIT_FAILURE);
 	}
+}
+
+/* Launches everything the config listed under `autostart`. Called once from
+ * main() and deliberately not from reload_config(): saving the config file
+ * should not spawn a second copy of every program in it. */
+static void
+autostart_spawn(const struct sushi_config *cfg)
+{
+	struct sushi_autostart *a;
+
+	wl_list_for_each(a, &cfg->autostart, link)
+		spawn(a->spawn_argv);
 }
 
 /* ---- interactive move/resize ----
@@ -299,16 +314,30 @@ on_click(void *data, uint32_t time, uint32_t button, uint32_t state)
 		return;
 	}
 
+	/* sushi.windows is kept in stacking order (window_raise() moves to the
+	 * head), so the first window covering the point is the one the user can
+	 * actually see there. Stopping at it matters: decor_hit_test() only
+	 * answers "is this my decoration", so walking past a window whose
+	 * *content* is under the pointer would let a window buried behind it
+	 * claim the click purely because its title bar band happens to line up
+	 * -- stealing focus, or toggling fullscreen on a double click, on a
+	 * window the user cannot even see. */
 	struct sushi_window *win;
 	wl_list_for_each(win, &sushi.windows, link) {
 		if (win->workspace != sushi.active_workspace)
 			continue;
+		if (!win->mapped || !win->revealed)
+			continue;
+		if (!decor_window_contains(win, x, y))
+			continue;
+
 		enum sushi_hit_kind hit = decor_hit_test(win, x, y);
 		if (hit != HIT_NONE) {
 			*relay = false;
 			handle_decor_click(win, hit, button, time);
 			return;
 		}
+		break;
 	}
 
 	win = window_at(x, y);
@@ -333,6 +362,14 @@ window_destroy_cb(void *data)
 		wl_event_source_remove(win->reveal_timer);
 	if (last_titlebar_click_win == win)
 		last_titlebar_click_win = NULL;
+
+	/* A window can die mid-drag (the client just exits). Dropping these
+	 * without clearing them leaves end_move()/end_resize() to dereference
+	 * the freed sushi_window on the next button release. */
+	if (active_move == win)
+		active_move = NULL;
+	if (active_resize == win)
+		active_resize = NULL;
 
 	wl_list_remove(&win->link);
 
@@ -448,9 +485,41 @@ new_screen(struct swc_screen *swc)
 static const struct swc_manager manager = {
 	.new_screen = new_screen,
 	.new_window = new_window,
+	.new_device = input_device_added,
 };
 
 /* ---- config hot reload ---- */
+
+/* Pushes the config's keyboard settings into swc. Safe to call repeatedly:
+ * swc re-sends the keymap and repeat info to clients that are already
+ * connected, so this works for a hot reload and not just at startup. */
+static void
+keyboard_apply(const struct sushi_config *cfg)
+{
+	struct swc_xkb_names names = {
+		.rules = cfg->kb_rules,
+		.model = cfg->kb_model,
+		.layout = cfg->kb_layout,
+		.variant = cfg->kb_variant,
+		.options = cfg->kb_options,
+	};
+
+	swc_set_repeat_info(cfg->repeat_rate, cfg->repeat_delay);
+
+	/* All-NULL means the user said nothing about the layout, and asking swc
+	 * to rebuild the keymap from nothing would discard whatever
+	 * XKB_DEFAULT_LAYOUT had selected. */
+	if (!names.rules && !names.model && !names.layout && !names.variant &&
+	    !names.options)
+		return;
+
+	if (!swc_set_keymap(&names)) {
+		fprintf(stderr, "sushi: could not apply keyboard layout '%s%s%s'\n",
+		        cfg->kb_layout ? cfg->kb_layout : "",
+		        cfg->kb_variant ? " variant " : "",
+		        cfg->kb_variant ? cfg->kb_variant : "");
+	}
+}
 
 static void
 reload_config(void)
@@ -463,6 +532,8 @@ reload_config(void)
 	bindings_register(cfg);
 	config_free(old);
 	cursor_apply(cfg);
+	keyboard_apply(cfg);
+	input_apply(cfg);
 
 	struct sushi_window *win;
 	wl_list_for_each(win, &sushi.windows, link)
@@ -525,11 +596,249 @@ setup_config_watch(void)
 	wl_event_loop_add_fd(sushi.event_loop, fd, WL_EVENT_READABLE, on_inotify_readable, NULL);
 }
 
+/* ---- crash reporting ----
+ *
+ * A compositor that dies takes every client with it, and the only thing
+ * visible afterwards is the clients complaining about a broken pipe --
+ * nothing that says whether sushi faulted or exited on its own. This says
+ * which, and where, using only async-signal-safe calls. */
+
+/* Writes a NUL-terminated string to stderr. write() is async-signal-safe;
+ * printf() is not, and a handler that deadlocks on stdio's lock prints
+ * nothing at all. */
+static void
+emit(const char *s)
+{
+	size_t len = 0;
+
+	while (s[len])
+		len++;
+	(void)!write(STDERR_FILENO, s, len);
+}
+
+static void
+emit_hex(unsigned long value)
+{
+	static const char digits[] = "0123456789abcdef";
+	char buf[2 + sizeof(value) * 2 + 1];
+	size_t i = sizeof(buf) - 1;
+
+	buf[i] = '\0';
+	do {
+		buf[--i] = digits[value & 0xf];
+		value >>= 4;
+	} while (value);
+	buf[--i] = 'x';
+	buf[--i] = '0';
+
+	emit(&buf[i]);
+}
+
+/* backtrace_symbols() is a glibc extension that musl does not have, so walk
+ * the frame pointer chain by hand (hence -fno-omit-frame-pointer, set for
+ * both sushi and swc) and print raw return addresses.
+ *
+ * Under PIE an address is only meaningful against the load base of whatever
+ * object it lands in, and the interesting frames are usually in libswc.so
+ * rather than in sushi itself -- so dump every executable mapping and let
+ * whoever reads it pick the one bracketing each address:
+ *
+ *     addr2line -f -p -e <object> $((<addr> - <base of that object>))
+ */
+static bool
+contains(const char *haystack, const char *needle)
+{
+	for (size_t i = 0; haystack[i]; i++) {
+		size_t j = 0;
+
+		while (needle[j] && haystack[i + j] == needle[j])
+			j++;
+		if (!needle[j])
+			return true;
+	}
+
+	return false;
+}
+
+static void
+emit_exec_maps(void)
+{
+	char buf[1024], line[512];
+	size_t linelen = 0;
+	ssize_t n;
+	int fd;
+
+	fd = open("/proc/self/maps", O_RDONLY);
+	if (fd < 0)
+		return;
+
+	emit("sushi: executable mappings:\n");
+
+	while ((n = read(fd, buf, sizeof(buf))) > 0) {
+		for (ssize_t i = 0; i < n; i++) {
+			if (buf[i] != '\n') {
+				if (linelen < sizeof(line) - 1)
+					line[linelen++] = buf[i];
+				continue;
+			}
+
+			line[linelen] = '\0';
+			if (contains(line, "r-xp")) {
+				emit("  ");
+				emit(line);
+				emit("\n");
+			}
+			linelen = 0;
+		}
+	}
+
+	close(fd);
+}
+
+static void
+emit_backtrace(void)
+{
+	void **frame = __builtin_frame_address(0);
+
+	emit("sushi: backtrace (return addresses):\n");
+
+	for (int depth = 0; depth < 32; depth++) {
+		void **next = (void **)frame[0];
+		void *ret = frame[1];
+
+		if (!ret)
+			break;
+
+		emit("  ");
+		emit_hex((unsigned long)ret);
+		emit("\n");
+
+		/* Stacks grow down, so a valid caller frame is always at a higher
+		 * address than ours. Anything else means the chain is corrupt (or
+		 * we walked into a frameless function) and following it would
+		 * fault inside the handler. */
+		if (next <= frame || ((unsigned long)next & 0x7))
+			break;
+		frame = next;
+	}
+}
+
+static const char *
+signal_name(int sig)
+{
+	switch (sig) {
+	case SIGSEGV:
+		return "SIGSEGV";
+	case SIGBUS:
+		return "SIGBUS";
+	case SIGABRT:
+		return "SIGABRT";
+	case SIGFPE:
+		return "SIGFPE";
+	case SIGILL:
+		return "SIGILL";
+	default:
+		return "signal";
+	}
+}
+
+/* The frame pointer walk cannot report the innermost frame: a leaf function
+ * gets no frame of its own, so the fault lands one level below anything the
+ * chain can see. The interrupted instruction pointer is that missing level,
+ * and it is the address that actually names the crashing function. */
+static void
+emit_fault_pc(void *ctx)
+{
+#if defined(__x86_64__) && defined(REG_RIP)
+	ucontext_t *uc = ctx;
+
+	if (!uc)
+		return;
+
+	emit("sushi: faulting pc ");
+	emit_hex((unsigned long)uc->uc_mcontext.gregs[REG_RIP]);
+	emit("\n");
+#else
+	(void)ctx;
+#endif
+}
+
+static void
+on_fatal_signal(int sig, siginfo_t *info, void *ctx)
+{
+	emit("\nsushi: fatal ");
+	emit(signal_name(sig));
+	emit(" at address ");
+	emit_hex((unsigned long)(info ? info->si_addr : NULL));
+	emit("\n");
+
+	emit_fault_pc(ctx);
+
+	emit_exec_maps();
+	emit_backtrace();
+
+	/* Re-raise with the default handler so the kernel still produces a
+	 * core dump for whoever wants one. */
+	signal(sig, SIG_DFL);
+	raise(sig);
+}
+
+static void
+install_crash_handler(void)
+{
+	struct sigaction sa = { 0 };
+	static const int sigs[] = { SIGSEGV, SIGBUS, SIGABRT, SIGFPE, SIGILL };
+
+	sa.sa_sigaction = on_fatal_signal;
+	sa.sa_flags = SA_SIGINFO | SA_RESETHAND;
+	sigemptyset(&sa.sa_mask);
+
+	for (size_t i = 0; i < sizeof(sigs) / sizeof(sigs[0]); i++)
+		sigaction(sigs[i], &sa, NULL);
+}
+
 /* ---- entry point ---- */
 
-int
-main(void)
+static void
+usage(FILE *out, const char *argv0)
 {
+	fprintf(out,
+	        "usage: %s [validate [path]]\n"
+	        "\n"
+	        "  (no arguments)   run the compositor\n"
+	        "  validate [path]  check the config and exit; reports which file\n"
+	        "                   would be used, and everything the compositor\n"
+	        "                   would otherwise ignore in silence\n"
+	        "\n"
+	        "Exit status for validate is 0 when the config has no errors.\n",
+	        argv0);
+}
+
+int
+main(int argc, char **argv)
+{
+	if (argc > 1) {
+		if (!strcmp(argv[1], "validate")) {
+			/* An explicit path is handy for checking a file before moving it
+			 * into place; without one, check the file sushi would load. */
+			char *path = argc > 2 ? xstrdup(argv[2]) : config_default_path();
+			bool ok = config_validate(path);
+
+			free(path);
+			return ok ? EXIT_SUCCESS : EXIT_FAILURE;
+		}
+
+		if (!strcmp(argv[1], "-h") || !strcmp(argv[1], "--help")) {
+			usage(stdout, argv[0]);
+			return EXIT_SUCCESS;
+		}
+
+		fprintf(stderr, "%s: unknown argument '%s'\n", argv[0], argv[1]);
+		usage(stderr, argv[0]);
+		return EXIT_FAILURE;
+	}
+
+	install_crash_handler();
 	signal(SIGCHLD, SIG_IGN);
 	/* Without this, a client dying mid-write (e.g. the terminal exiting
 	 * while sushi is still flushing its wl_display) delivers SIGPIPE on
@@ -540,6 +849,7 @@ main(void)
 	signal(SIGPIPE, SIG_IGN);
 
 	wl_list_init(&sushi.outputs);
+	wl_list_init(&sushi.devices);
 	wl_list_init(&sushi.windows);
 	sushi.active_workspace = 1;
 
@@ -570,11 +880,20 @@ main(void)
 	sushi.config = config_load(sushi.config_path);
 	bindings_register(sushi.config);
 	cursor_apply(sushi.config);
+	keyboard_apply(sushi.config);
 	setup_config_watch();
 
 	fprintf(stderr, "sushi: running on %s (config: %s)\n", socket, sushi.config_path);
 
+	/* After the socket is in the environment, so the children find it. */
+	autostart_spawn(sushi.config);
+
 	wl_display_run(sushi.display);
+
+	/* Distinguishes an orderly shutdown (this line) from a fault (the
+	 * crash handler's line) when only the clients' broken-pipe errors are
+	 * left on screen. */
+	fprintf(stderr, "sushi: event loop terminated, shutting down\n");
 
 	swc_finalize();
 	wl_display_destroy(sushi.display);
