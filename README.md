@@ -6,7 +6,7 @@ through swc).
 - Floating.
 - Hot-reloaded on save.
 - Per-`app_id` window rules (workspace, title bar, border).
-- Decoration themes in the spirit of [lola](https://shithub.us/aap/lola/):
+- Decoration themes in the spirit of [lola](https://shithub.us/aap/lola/HEAD/info.html):
 `flat` (title bar, no buttons), 
 `classic` (`flat` plus minimize/maximize/close buttons), 
 `simple` (no title bar at all, just a border, if enabled by user), 
