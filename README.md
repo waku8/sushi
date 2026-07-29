@@ -1,5 +1,3 @@
-![sushi](doc/sushi.png)
-
 # sushi
 
 A minimal floating Wayland window manager, built on [swc](https://git.sr.ht/~shrub900/neuswc) (the `neuswc` fork) and [wld](https://git.sr.ht/~shrub900/neuwld) (`neuwld`, linked transitively
