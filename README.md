@@ -1,4 +1,5 @@
 # sushi 
+<a href="doc/out.png"><img src="doc/out.png" width="28%" align="right"></a>
 
 An itsy bitsy floating Wayland compositor (*4k~ sloc*), built on
 [neuswc](https://git.sr.ht/~shrub900/neuswc) and
@@ -6,16 +7,14 @@ An itsy bitsy floating Wayland compositor (*4k~ sloc*), built on
 
 - Floating only.
 - Fullscreen toggle.
-- Window centering (*new windows land in the middle*).
-- Ten workspaces.
-- Mix of mouse and keyboard workflow.
+- Window centering (*new windows spawn in the middle*).
 - Alt-Tab window focusing.
 - Server-side decorations, five themes (*flat, classic, simple, love, win95*).
 - Title bar font is any fontconfig pattern.
 - Per-`app_id` window rules (*workspace, border, title bar*).
 - Autostart 
 - Built-in nein cursor, or fall back to client-drawn ones.
-- Panels get their space respected (*layer shell, through swc*).
+- Panels get their space respected (*layer shell, through neuswc*).
 - Config hot-reloaded on save.
 - `sushi validate` tells you what you got wrong.
 
@@ -63,8 +62,11 @@ Saving the config reloads on the fly. The keyboard section is the exception: swc
 reads the layout and key repeat once at startup, so those need a restart.
 
 ## Thanks
-- [lola](https://shithub.us/aap/lola/)
+- [neuswc](https://git.sr.ht/~shrub900/neuswc)
+- [neuwld](https://git.sr.ht/~shrub900/neuwld)
+- [lola](https://shithub.us/aap/lola/HEAD/info.html)
 - [mot](https://codeberg.org/chld/mot)
-- [swc](https://github.com/michaelforney/swc)
 - [tohu](https://git.sr.ht/~shrub900/tohu/)
+- [swc](https://github.com/michaelforney/swc)
 - [wld](https://github.com/michaelforney/wld)
+
