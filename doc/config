@@ -1,12 +1,11 @@
 # sushi default config
 #
 # Lives at $XDG_CONFIG_HOME/sushi/config (usually ~/.config/sushi/config).
-# Hot-reloaded automatically on save, no need to restart sushi.
+# Reloaded on save, no restart needed.
 #
-# Run `sushi validate` to check this file: it reports which file would
-# actually be used (this one, your own, or the built-in defaults) and prints
-# everything sushi would otherwise ignore in silence. Exit status is 0 when
-# there are no errors, so it works in a pre-commit hook or a login script.
+# Run `sushi validate` to check this file. It says which file sushi would
+# read and prints everything it would otherwise ignore in silence. Exit
+# status is 0 when there are no errors.
 
 # --- global settings ---
 mod logo          # logo (mod4/super), alt, or ctrl
@@ -21,7 +20,8 @@ title-font "terminus:size=10"   # fontconfig pattern; unset = swc's built-in def
 text-color-active ffffff
 text-color-inactive 2f2f2f
 
-# border/title bar background (flat/classic/simple/love share one color; win95 ignores these and keeps its own fixed 3D palette)
+# border and title bar background. flat/classic/simple/love share one color.
+# win95 ignores these and keeps its own 3D palette.
 border-color-active 4c7a4c
 border-color-inactive a9c4a9
 
@@ -30,9 +30,8 @@ cursor-color-in ffffff
 cursor-color-out 000000
 
 # --- keyboard ---
-# XKB layout selection. Leave any of these out and libxkbcommon decides,
-# which means the XKB_DEFAULT_* environment variables still work. Changing
-# them and saving takes effect immediately -- no restart, no relogin.
+# XKB layout. Leave a key out and libxkbcommon decides, so the XKB_DEFAULT_*
+# environment variables still work.
 #
 # keyboard-layout us          # or a switchable pair: "us,br"
 # keyboard-variant intl       # e.g. intl, altgr-intl, nodeadkeys
@@ -40,11 +39,15 @@ cursor-color-out 000000
 # keyboard-model pc105
 # keyboard-rules evdev
 #
-# An invalid layout is refused and the current one kept, so a typo here
-# costs a warning on stderr rather than a keyboard.
+# A layout xkbcommon cannot build is refused and the old one kept, so a typo
+# here costs a line on stderr rather than a keyboard.
+#
+# This section is the exception to the reload above. swc reads it once when
+# it brings the keyboard up, so changes need sushi restarted. Saving the file
+# says so on stderr instead of pretending it worked.
 
-repeat-rate 40          # key repeats per second
-repeat-delay 500        # milliseconds held before repeating starts
+repeat-rate 40          # key repeats per second (restart to change)
+repeat-delay 500        # milliseconds held before repeating starts (same)
 
 # --- bindings ---
 # <combo> is mod/shift/ctrl/alt joined with '+', ending in either a key name
@@ -86,7 +89,7 @@ bind mod+shift+0 move-to-workspace 10
 
 # --- per-app_id rules ---
 # app_id is matched exactly, or as a prefix if the pattern ends in '*'.
-# Uncomment/edit as needed:
+# Uncomment and edit as needed:
 
 # window "mpv" {
 #     border false
@@ -103,16 +106,16 @@ bind mod+shift+0 move-to-workspace 10
 #   "Some Device Name"   or a prefix: "Logitech*"
 #   *               every device
 #
-# For a device matching more than one block the later block wins, so put the
-# broad ones first. Anything left out keeps libinput's own default -- that is
-# not the same as writing false. Re-applied on reload.
+# When a device matches more than one block the later one wins, so put the
+# broad ones first. A setting you leave out keeps libinput's default, which
+# is not the same as writing false. Re-applied on reload.
 #
 # Toggles take enabled/disabled (true/false/yes/no/1/0 also work).
 #
 # A setting the device cannot do is ignored and reported on stderr, e.g. `tap`
-# under a "type:mouse" block. Not reported inside a `*` block -- that one means
-# "whatever applies", so touchpad settings in it are expected to be skipped on
-# a machine without one.
+# under a "type:mouse" block. Not reported inside a `*` block, since that one
+# means "whatever applies" and skipping touchpad settings on a machine without
+# a touchpad is the point.
 
 # input * {
 #     accel-profile flat        # flat (no acceleration) | adaptive
@@ -138,8 +141,8 @@ bind mod+shift+0 move-to-workspace 10
 # Programs launched once, when the session starts. One per line, in the order
 # they should run. Quote an argument to keep spaces in it.
 #
-# Not re-run on reload: saving this file would otherwise open another copy of
-# everything here every time. Adding an entry takes effect at the next login.
+# Not re-run on reload, or saving this file would open another copy of
+# everything every time. A new entry takes effect at the next login.
 
 # autostart foot
 # autostart waybar

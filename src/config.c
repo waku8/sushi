@@ -813,37 +813,19 @@ config_validate(const char *path)
 		printf("%s: error: repeat-delay %d is negative\n", used,
 		       cfg->repeat_delay), d.errors++;
 
-	/* The layout is only rejected at runtime, by which point the session is
-	 * already up; xkbcommon can tell us here instead. */
-	if (cfg->kb_rules || cfg->kb_model || cfg->kb_layout || cfg->kb_variant ||
-	    cfg->kb_options) {
-		/* xkbcommon writes its own (useful) diagnosis to stderr, unbuffered;
-		 * without this our buffered lines would all land after it. */
-		fflush(stdout);
-
-		struct xkb_rule_names names = {
-			.rules = cfg->kb_rules,
-			.model = cfg->kb_model,
-			.layout = cfg->kb_layout,
-			.variant = cfg->kb_variant,
-			.options = cfg->kb_options,
-		};
-		struct xkb_context *ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-		struct xkb_keymap *keymap =
-		    ctx ? xkb_keymap_new_from_names(ctx, &names, 0) : NULL;
-
-		if (keymap) {
-			xkb_keymap_unref(keymap);
-		} else {
-			printf("%s: error: xkbcommon cannot build the keyboard layout "
-			       "(layout '%s', variant '%s', options '%s')\n",
-			       used, cfg->kb_layout ? cfg->kb_layout : "",
-			       cfg->kb_variant ? cfg->kb_variant : "",
-			       cfg->kb_options ? cfg->kb_options : "");
-			d.errors++;
-		}
-		if (ctx)
-			xkb_context_unref(ctx);
+	/* At startup a bad layout only costs a line on stderr. Here it is an
+	 * error, which is the point of validate.
+	 *
+	 * xkbcommon writes its own (useful) diagnosis to stderr, unbuffered, so
+	 * flush first or our buffered lines all land after it. */
+	fflush(stdout);
+	if (!config_keymap_builds(cfg)) {
+		printf("%s: error: xkbcommon cannot build the keyboard layout "
+		       "(layout '%s', variant '%s', options '%s')\n",
+		       used, cfg->kb_layout ? cfg->kb_layout : "",
+		       cfg->kb_variant ? cfg->kb_variant : "",
+		       cfg->kb_options ? cfg->kb_options : "");
+		d.errors++;
 	}
 
 	config_free(cfg);
@@ -852,6 +834,31 @@ config_validate(const char *path)
 	       d.warnings, d.warnings == 1 ? "" : "s");
 
 	return d.errors == 0;
+}
+
+bool
+config_keymap_builds(const struct sushi_config *cfg)
+{
+	if (!cfg->kb_rules && !cfg->kb_model && !cfg->kb_layout &&
+	    !cfg->kb_variant && !cfg->kb_options)
+		return true;
+
+	struct xkb_rule_names names = {
+		.rules = cfg->kb_rules,
+		.model = cfg->kb_model,
+		.layout = cfg->kb_layout,
+		.variant = cfg->kb_variant,
+		.options = cfg->kb_options,
+	};
+	struct xkb_context *ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+	struct xkb_keymap *keymap =
+	    ctx ? xkb_keymap_new_from_names(ctx, &names, 0) : NULL;
+	bool ok = keymap != NULL;
+
+	xkb_keymap_unref(keymap);
+	xkb_context_unref(ctx);
+
+	return ok;
 }
 
 struct sushi_config *

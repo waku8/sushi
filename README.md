@@ -1,71 +1,70 @@
-![sushi](doc/sushi.png)
+# sushi 
 
-# sushi
+An itsy bitsy floating Wayland compositor (*4k~ sloc*), built on
+[neuswc](https://git.sr.ht/~shrub900/neuswc) and
+[neuwld](https://git.sr.ht/~shrub900/neuwld).
 
-A minimal floating Wayland window manager, built on
-[swc](https://git.sr.ht/~shrub900/neuswc) (the `neuswc` fork) and
-[wld](https://git.sr.ht/~shrub900/neuwld) (`neuwld`, linked transitively
-through swc).
+- Floating only.
+- Fullscreen toggle.
+- Window centering (*new windows land in the middle*).
+- Ten workspaces.
+- Mix of mouse and keyboard workflow.
+- Alt-Tab window focusing.
+- Server-side decorations, five themes (*flat, classic, simple, love, win95*).
+- Title bar font is any fontconfig pattern.
+- Per-`app_id` window rules (*workspace, border, title bar*).
+- Autostart 
+- Built-in nein cursor, or fall back to client-drawn ones.
+- Panels get their space respected (*layer shell, through swc*).
+- Config hot-reloaded on save.
+- `sushi validate` tells you what you got wrong.
 
-- Floating only, no tiling.
-- Hot-reloaded on save.
-- Per-`app_id` window rules (workspace, title bar, border).
-- Decoration themes in the spirit of [lola](https://shithub.us/aap/lola/):
-  `flat` (title bar, no buttons), `classic` (`flat` plus minimize/
-  maximize-restore/close buttons), `simple` (no title bar at all, just a
-  border, if enabled by user), `love` (like `classic`, but every button is a
-  heart), and `win95` (Chicago-style beveled gray frame, navy title bar, a
-  little window icon top-left). Title bar font is a configurable fontconfig
-  pattern (`title-font`); 
-- nein curesor, or disable to fall back to client-drawn cursors.
+## Default Keybindings
+
+**Window Management**
+
+| combo                     | action                 |
+| ------------------------- | ---------------------- |
+| `mod` + `Left Mouse`     | move window            |
+| `mod` + `Right Mouse`    | resize window          |
+| `mod` + `f`              | fullscreen toggle      |
+| `mod` + `c`              | center window          |
+| `mod` + `q`              | kill window            |
+| `mod` + `Shift` + `q`    | quit sushi             |
+| `mod` + `1-9,0`          | workspace swap         |
+| `mod` + `Shift` + `1-9,0`| send window to workspace |
+| `alt` + `TAB` | focus cycle            |
+| `mod` + `Return` | terminal  | `foot`   |
+| `mod` + `d`      | launcher  | `fuzzel` |
+
+## Dependencies
+- `swc` (*the [neuswc](https://git.sr.ht/~shrub900/neuswc) fork*).
+- `wld` (*the [neuwld](https://git.sr.ht/~shrub900/neuwld) fork, pulled in by swc*).
+- `wayland-server`.
+- `xkbcommon`.
+- `libinput`.
 
 ## Building
-Requires swc and wld already installed (`pkg-config swc wld`), plus
-wayland-server and xkbcommon.
 
-```
-meson setup build
-ninja -C build
-ninja -C build install
-```
+1) Run `meson setup build` to configure.
+2) Run `ninja -C build` to build `sushi`.
+3) Run `ninja -C build install` to install it.
 
-## Config
-
-`~/.config/sushi/config`, created on first run if missing. See
-[doc/config](doc/config) for the full grammar and default bindings.
-Saving the file reloads it live.
-
-## Default bindings (mod = Super)
-
-| Binding | Action |
-| --- | --- |
-| mod+Return | spawn terminal |
-| mod+d | spawn launcher |
-| mod+q | close window |
-| mod+shift+q | quit sushi |
-| mod+f | toggle fullscreen |
-| mod+c | center window |
-| mod+drag (button1) | move the window under the cursor |
-| mod+drag (button3) | resize the window under the cursor |
-| mod+\[1-9,0\] | switch workspace |
-| mod+shift+\[1-9,0\] | move window to workspace |
-| alt+Tab | cycle focus to the next window |
-
-## Credits
-
-sushi's design and decor themes were shaped by ideas from a few other
-window managers/compositors -- thanks to their authors:
-[tohu](https://git.sr.ht/~shrub900/tohu/), [mot](https://codeberg.org/chld/mot),
-and [lola](https://shithub.us/aap/lola/).
+There is nothing to edit before building: the config lives at
+`~/.config/sushi/config`. See [doc/config](doc/config) for the full grammar and every default.
 
 ## Checking your config
+```
+sushi validate            # checks the file sushi would load
+sushi validate ./config   # checks a specific file
+```
 
-    sushi validate            # checks the file sushi would load
-    sushi validate ./config   # checks a specific file
+Saving the config reloads on the fly. The keyboard section is the exception: swc
+reads the layout and key repeat once at startup, so those need a restart.
 
-Reports which file would actually be used -- your own, the installed default,
-or sushi's built-in values -- and prints everything the compositor would
-otherwise ignore in silence: unknown keys, bad values, unclosed blocks,
-commands that are not on `PATH`, and a keyboard layout xkbcommon cannot build.
-
-Exits 0 when there are no errors, so it is usable from a script.
+## Thanks
+- [lola](https://shithub.us/aap/lola/)
+- [mot](https://codeberg.org/chld/mot)
+- [swc](https://github.com/michaelforney/swc)
+- [tohu](https://git.sr.ht/~shrub900/tohu/)
+- [wld](https://github.com/michaelforney/wld)

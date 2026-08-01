@@ -490,35 +490,67 @@ static const struct swc_manager manager = {
 
 /* ---- config hot reload ---- */
 
-/* Pushes the config's keyboard settings into swc. Safe to call repeatedly:
- * swc re-sends the keymap and repeat info to clients that are already
- * connected, so this works for a hot reload and not just at startup. */
+/* Leaving a field out of the config means the environment still decides, so
+ * only the ones the user actually set are overridden. */
+static void
+keyboard_setenv(const char *var, const char *value)
+{
+	if (value)
+		setenv(var, value, 1);
+}
+
+/* Pushes the config's keyboard settings into swc. Must run before
+ * swc_initialize(): swc builds its keymap from libxkbcommon's defaults when
+ * it creates the seat, which means from the XKB_DEFAULT_* variables, and
+ * hands clients the repeat rate and delay when they bind their keyboard.
+ * Neither can be changed afterwards, so a reload cannot pick these up.
+ * keyboard_changed() below says so instead. */
 static void
 keyboard_apply(const struct sushi_config *cfg)
 {
-	struct swc_xkb_names names = {
-		.rules = cfg->kb_rules,
-		.model = cfg->kb_model,
-		.layout = cfg->kb_layout,
-		.variant = cfg->kb_variant,
-		.options = cfg->kb_options,
-	};
+	swc_repeat_rate = cfg->repeat_rate;
+	swc_repeat_delay = cfg->repeat_delay;
 
-	swc_set_repeat_info(cfg->repeat_rate, cfg->repeat_delay);
-
-	/* All-NULL means the user said nothing about the layout, and asking swc
-	 * to rebuild the keymap from nothing would discard whatever
-	 * XKB_DEFAULT_LAYOUT had selected. */
-	if (!names.rules && !names.model && !names.layout && !names.variant &&
-	    !names.options)
+	if (!cfg->kb_rules && !cfg->kb_model && !cfg->kb_layout &&
+	    !cfg->kb_variant && !cfg->kb_options)
 		return;
 
-	if (!swc_set_keymap(&names)) {
-		fprintf(stderr, "sushi: could not apply keyboard layout '%s%s%s'\n",
+	/* swc has no way to report a bad layout back to us. It would fail to
+	 * build the keymap, fail to create the seat, and take swc_initialize()
+	 * down with it, killing the session. So a typo is caught here and the
+	 * settings dropped, leaving whatever the environment had selected. */
+	if (!config_keymap_builds(cfg)) {
+		fprintf(stderr, "sushi: ignoring keyboard layout '%s%s%s': xkbcommon "
+		                "cannot build it\n",
 		        cfg->kb_layout ? cfg->kb_layout : "",
 		        cfg->kb_variant ? " variant " : "",
 		        cfg->kb_variant ? cfg->kb_variant : "");
+		return;
 	}
+
+	keyboard_setenv("XKB_DEFAULT_RULES", cfg->kb_rules);
+	keyboard_setenv("XKB_DEFAULT_MODEL", cfg->kb_model);
+	keyboard_setenv("XKB_DEFAULT_LAYOUT", cfg->kb_layout);
+	keyboard_setenv("XKB_DEFAULT_VARIANT", cfg->kb_variant);
+	keyboard_setenv("XKB_DEFAULT_OPTIONS", cfg->kb_options);
+}
+
+static bool
+streq_null(const char *a, const char *b)
+{
+	return a && b ? !strcmp(a, b) : a == b;
+}
+
+static bool
+keyboard_changed(const struct sushi_config *a, const struct sushi_config *b)
+{
+	return !streq_null(a->kb_rules, b->kb_rules) ||
+	       !streq_null(a->kb_model, b->kb_model) ||
+	       !streq_null(a->kb_layout, b->kb_layout) ||
+	       !streq_null(a->kb_variant, b->kb_variant) ||
+	       !streq_null(a->kb_options, b->kb_options) ||
+	       a->repeat_rate != b->repeat_rate ||
+	       a->repeat_delay != b->repeat_delay;
 }
 
 static void
@@ -527,12 +559,16 @@ reload_config(void)
 	struct sushi_config *old = sushi.config;
 	struct sushi_config *cfg = config_load(sushi.config_path);
 
+	if (keyboard_changed(old, cfg)) {
+		fprintf(stderr, "sushi: keyboard settings changed; restart sushi to "
+		                "apply them\n");
+	}
+
 	bindings_unregister(old);
 	sushi.config = cfg;
 	bindings_register(cfg);
 	config_free(old);
 	cursor_apply(cfg);
-	keyboard_apply(cfg);
 	input_apply(cfg);
 
 	struct sushi_window *win;
@@ -868,6 +904,12 @@ main(int argc, char **argv)
 
 	sushi.event_loop = wl_display_get_event_loop(sushi.display);
 
+	/* Before swc_initialize(), which is where swc reads the keyboard
+	 * settings once and for all; see keyboard_apply(). */
+	sushi.config_path = config_default_path();
+	sushi.config = config_load(sushi.config_path);
+	keyboard_apply(sushi.config);
+
 	if (!swc_initialize(sushi.display, sushi.event_loop, &manager)) {
 		fprintf(stderr, "sushi: swc_initialize failed\n");
 		return EXIT_FAILURE;
@@ -876,11 +918,8 @@ main(int argc, char **argv)
 	swc_add_binding(SWC_BINDING_BUTTON, 0, BTN_LEFT, on_click, NULL);
 	swc_add_binding(SWC_BINDING_BUTTON, 0, BTN_RIGHT, on_click, NULL);
 
-	sushi.config_path = config_default_path();
-	sushi.config = config_load(sushi.config_path);
 	bindings_register(sushi.config);
 	cursor_apply(sushi.config);
-	keyboard_apply(sushi.config);
 	setup_config_watch();
 
 	fprintf(stderr, "sushi: running on %s (config: %s)\n", socket, sushi.config_path);

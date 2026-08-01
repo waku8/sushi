@@ -181,6 +181,10 @@ struct sushi_config *config_load(const char *path);
 bool config_validate(const char *path);
 void config_free(struct sushi_config *cfg);
 
+/* True when xkbcommon can build the config's keyboard layout. Also true when
+ * the config names no layout at all, since then there is nothing to reject. */
+bool config_keymap_builds(const struct sushi_config *cfg);
+
 /* Returns the first rule whose pattern matches app_id, or NULL. app_id may
  * be NULL (matches nothing). */
 const struct sushi_rule *config_match_rule(const struct sushi_config *cfg,
