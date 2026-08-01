@@ -1,4 +1,4 @@
-/* sushi: cursor.h -- Plan 9 "nein" cursor theme */
+/* cursor.h: Plan 9 "nein" cursor theme */
 #ifndef SUSHI_CURSOR_H
 #define SUSHI_CURSOR_H
 

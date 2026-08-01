@@ -1,4 +1,4 @@
-/* sushi: main.c -- entry point, swc glue, input dispatch, hot reload */
+/* main.c: entry point, swc glue, input dispatch, hot reload */
 #include "sushi.h"
 #include "cursor.h"
 #include "decor.h"
@@ -25,7 +25,7 @@ xstrdup(const char *s)
 }
 
 /* swc_cursor_position() returns wl_fixed_t (24.8 fixed-point) despite the
- * plain int32_t signature -- divide by 256 to get real screen pixels. */
+ * plain int32_t signature. Divide by 256 to get real screen pixels. */
 static bool
 cursor_position(int32_t *x, int32_t *y)
 {
@@ -36,7 +36,7 @@ cursor_position(int32_t *x, int32_t *y)
 	return true;
 }
 
-/* ---- spawning ---- */
+/* spawning */
 
 static void
 spawn(char **argv)
@@ -69,13 +69,13 @@ autostart_spawn(const struct sushi_config *cfg)
 		spawn(a->spawn_argv);
 }
 
-/* ---- interactive move/resize ----
+/* interactive move/resize
  *
  * swc_window_begin_move()/begin_resize() don't self-terminate on the
- * triggering button's release -- the WM has to call the matching end_*
+ * triggering button's release. The WM has to call the matching end_*
  * explicitly, or the window keeps tracking pointer motion indefinitely
  * (as if the button were still held). These wrap begin_* with that
- * bookkeeping; end_move()/end_resize() are safe to call speculatively
+ * bookkeeping. end_move()/end_resize() are safe to call speculatively
  * (no-op if nothing is in progress). */
 
 static struct sushi_window *active_move;
@@ -117,7 +117,7 @@ end_resize(void)
 	}
 }
 
-/* ---- action dispatch (shared by key/button bindings) ---- */
+/* action dispatch (shared by key/button bindings) */
 
 static void
 dispatch_action(struct sushi_binding *b)
@@ -201,7 +201,7 @@ on_button_binding(void *data, uint32_t time, uint32_t value, uint32_t state)
 	}
 
 	/* Release: only move/resize bindings need to know about this (to end
-	 * the drag); everything else already fired on press. */
+	 * the drag). Everything else already fired on press. */
 	if (b->action == ACTION_MOVE)
 		end_move();
 	else if (b->action == ACTION_RESIZE)
@@ -233,14 +233,14 @@ bindings_unregister(struct sushi_config *cfg)
 	}
 }
 
-/* ---- global click handling: decoration hit-test, click-to-focus/raise,
- * and transparent forwarding of unhandled clicks to the focused client. ---- */
+/* global click handling: decoration hit-test, click-to-focus/raise,
+ * and transparent forwarding of unhandled clicks to the focused client. */
 
 static bool relay_left, relay_right;
 
 /* Double-click-on-titlebar-to-fullscreen tracking. sushi rebuilds decor on
  * state change rather than per-frame, so there's no mouse-move-based click
- * state machine anywhere else to hook into -- this is the only place a
+ * state machine anywhere else to hook into. This is the only place a
  * "click" (as opposed to a drag) is ever really recognized. */
 #define DOUBLE_CLICK_MS 400
 
@@ -319,8 +319,8 @@ on_click(void *data, uint32_t time, uint32_t button, uint32_t state)
 	 * actually see there. Stopping at it matters: decor_hit_test() only
 	 * answers "is this my decoration", so walking past a window whose
 	 * *content* is under the pointer would let a window buried behind it
-	 * claim the click purely because its title bar band happens to line up
-	 * -- stealing focus, or toggling fullscreen on a double click, on a
+	 * claim the click purely because its title bar band happens to line up,
+	 * stealing focus, or toggling fullscreen on a double click, on a
 	 * window the user cannot even see. */
 	struct sushi_window *win;
 	wl_list_for_each(win, &sushi.windows, link) {
@@ -350,7 +350,7 @@ on_click(void *data, uint32_t time, uint32_t button, uint32_t state)
 	swc_pointer_send_button(time, button, state);
 }
 
-/* ---- window lifecycle ---- */
+/* window lifecycle */
 
 static void
 window_destroy_cb(void *data)
@@ -457,7 +457,7 @@ new_window(struct swc_window *swc)
 	window_place_new(win);
 }
 
-/* ---- screens ---- */
+/* screens */
 
 static void
 screen_entered_cb(void *data)
@@ -488,7 +488,7 @@ static const struct swc_manager manager = {
 	.new_device = input_device_added,
 };
 
-/* ---- config hot reload ---- */
+/* config hot reload */
 
 /* Leaving a field out of the config means the environment still decides, so
  * only the ones the user actually set are overridden. */
@@ -632,14 +632,14 @@ setup_config_watch(void)
 	wl_event_loop_add_fd(sushi.event_loop, fd, WL_EVENT_READABLE, on_inotify_readable, NULL);
 }
 
-/* ---- crash reporting ----
+/* crash reporting
  *
  * A compositor that dies takes every client with it, and the only thing
- * visible afterwards is the clients complaining about a broken pipe --
+ * visible afterwards is the clients complaining about a broken pipe,
  * nothing that says whether sushi faulted or exited on its own. This says
  * which, and where, using only async-signal-safe calls. */
 
-/* Writes a NUL-terminated string to stderr. write() is async-signal-safe;
+/* Writes a NUL-terminated string to stderr. write() is async-signal-safe,
  * printf() is not, and a handler that deadlocks on stdio's lock prints
  * nothing at all. */
 static void
@@ -671,12 +671,14 @@ emit_hex(unsigned long value)
 }
 
 /* backtrace_symbols() is a glibc extension that musl does not have, so walk
- * the frame pointer chain by hand (hence -fno-omit-frame-pointer, set for
- * both sushi and swc) and print raw return addresses.
+ * the frame pointer chain by hand and print raw return addresses. sushi's
+ * own build sets -fno-omit-frame-pointer for this. swc is a separate
+ * dependency, so how far the walk gets through its frames depends on how it
+ * was built.
  *
  * Under PIE an address is only meaningful against the load base of whatever
  * object it lands in, and the interesting frames are usually in libswc.so
- * rather than in sushi itself -- so dump every executable mapping and let
+ * rather than in sushi itself, so dump every executable mapping and let
  * whoever reads it pick the one bracketing each address:
  *
  *     addr2line -f -p -e <object> $((<addr> - <base of that object>))
@@ -833,7 +835,7 @@ install_crash_handler(void)
 		sigaction(sigs[i], &sa, NULL);
 }
 
-/* ---- entry point ---- */
+/* entry point */
 
 static void
 usage(FILE *out, const char *argv0)
@@ -856,7 +858,7 @@ main(int argc, char **argv)
 	if (argc > 1) {
 		if (!strcmp(argv[1], "validate")) {
 			/* An explicit path is handy for checking a file before moving it
-			 * into place; without one, check the file sushi would load. */
+			 * into place. Without one, check the file sushi would load. */
 			char *path = argc > 2 ? xstrdup(argv[2]) : config_default_path();
 			bool ok = config_validate(path);
 
@@ -879,9 +881,9 @@ main(int argc, char **argv)
 	/* Without this, a client dying mid-write (e.g. the terminal exiting
 	 * while sushi is still flushing its wl_display) delivers SIGPIPE on
 	 * the next write to that now-closed socket, whose default
-	 * disposition is to kill the whole process -- taking sushi itself
+	 * disposition is to kill the whole process, taking sushi itself
 	 * down along with the one client. libwayland-server already reports
-	 * the broken pipe as a normal error; we just need to not die from it. */
+	 * the broken pipe as a normal error. We just need to not die from it. */
 	signal(SIGPIPE, SIG_IGN);
 
 	wl_list_init(&sushi.outputs);
@@ -905,7 +907,7 @@ main(int argc, char **argv)
 	sushi.event_loop = wl_display_get_event_loop(sushi.display);
 
 	/* Before swc_initialize(), which is where swc reads the keyboard
-	 * settings once and for all; see keyboard_apply(). */
+	 * settings once and for all (see keyboard_apply()). */
 	sushi.config_path = config_default_path();
 	sushi.config = config_load(sushi.config_path);
 	keyboard_apply(sushi.config);

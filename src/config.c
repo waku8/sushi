@@ -1,4 +1,4 @@
-/* sushi: config.c */
+/* config.c */
 #include "config.h"
 
 #include <ctype.h>
@@ -54,8 +54,9 @@ diag_at(bool error, const char *fmt, ...)
 	fputc('\n', stdout);
 }
 
-/* Whether `cmd` can actually be started. Only checked by the validator; a
- * missing program is a warning, since it may just not be installed yet. */
+/* Whether `cmd` can actually be started. Runs on every load, but diag_at()
+ * only reports when `diag` is set, so a missing program is silent at runtime
+ * and a warning under the validator (it may just not be installed yet). */
 static bool
 on_path(const char *cmd)
 {
@@ -64,7 +65,7 @@ on_path(const char *cmd)
 
 	const char *path = getenv("PATH");
 	if (!path)
-		return true; /* nothing to check against; do not cry wolf */
+		return true; /* nothing to check against, so do not cry wolf */
 
 	char *copy = strdup(path), *save = NULL;
 	if (!copy)
@@ -102,13 +103,13 @@ truthy(const char *s)
 	       strcmp(s, "on") == 0;
 }
 
-/* Colors are configured as plain "rrggbb" hex -- always fully opaque, since
+/* Colors are configured as plain "rrggbb" hex, always fully opaque, since
  * nothing in sushi's decor ever uses partial transparency. Internally
  * colors still travel around as ARGB8888 (the software rasterizer and
  * swc's decor API both want that), so this just forces the alpha byte on.
  *
- * A leading '#' is accepted too, but only if quoted ("#rrggbb") -- '#'
- * unquoted starts a comment (see tokenize()) that eats the rest of the
+ * A leading '#' is accepted too, but only if quoted ("#rrggbb"): an
+ * unquoted '#' starts a comment (see tokenize()) that eats the rest of the
  * line, silently dropping the value, so an unquoted "color #rrggbb" line
  * is indistinguishable from writing nothing at all. */
 static uint32_t
@@ -122,7 +123,7 @@ parse_color(const char *s)
 /* Split `line` into whitespace-separated tokens, treating "..." as a single
  * token (quotes stripped, no escape support). A '#' outside quotes starts a
  * comment that runs to the end of the line. Tokens are pointers into a
- * mutated copy of `line` (NUL-terminated in place); the caller must keep
+ * mutated copy of `line` (NUL-terminated in place). The caller must keep
  * `buf` alive as long as the tokens are used. */
 static int
 tokenize(char *buf, char *tokens[], int max_tokens)
@@ -131,7 +132,6 @@ tokenize(char *buf, char *tokens[], int max_tokens)
 	char *p = buf;
 	bool in_quotes = false;
 
-	/* strip an unquoted comment first */
 	for (char *c = buf; *c; c++) {
 		if (*c == '"')
 			in_quotes = !in_quotes;
@@ -291,7 +291,7 @@ parse_combo(struct sushi_config *cfg, char *combo, enum sushi_bind_type *type,
 
 	if (!strcmp(last, "mod")) {
 		/* "mod" alone used as the trailing token means the modifier itself
-		 * was meant as the key, which isn't supported; treat as error. */
+		 * was meant as the key, which isn't supported. Treat as error. */
 		return false;
 	}
 
@@ -421,12 +421,10 @@ parse_rule_line(struct sushi_rule *r, char **tok, int ntok)
 	}
 }
 
-/* Applies a global "key value" line (mod/terminal/launcher/theme/
- * border-width/title-height/title-font/text-color-active/
- * text-color-inactive/border-color-active/border-color-inactive/cursor/
- * cursor-color-in/cursor-color-out).
- * No-op for anything else, so it's safe to call while skipping over
- * bind/window lines. */
+/* Applies a top-level "key value" line: appearance, keyboard, and cursor
+ * settings, i.e. anything that isn't `bind`, `window`, `input`, or
+ * `autostart`. No-op for anything else, so it's safe to call while skipping
+ * over bind/window lines. */
 static void
 parse_global_line(struct sushi_config *cfg, char **tok, int ntok)
 {
@@ -504,10 +502,11 @@ parse_global_line(struct sushi_config *cfg, char **tok, int ntok)
 }
 
 /* Adds the built-in default bindings (terminal/launcher spawn, close,
- * fullscreen, center, quit, workspace switching, mod-drag move/resize).
- * These use cfg->mod/terminal/launcher, so they must be seeded *after*
- * globals have been parsed, and are added via add_binding() so that any
- * `bind` line in the config for the same combo simply replaces them. */
+ * fullscreen, center, quit, workspace switching, mod-drag move/resize,
+ * alt+Tab cycle-focus). These use cfg->mod/terminal/launcher, so they must
+ * be seeded *after* globals have been parsed, and are added via
+ * add_binding() so that any `bind` line in the config for the same combo
+ * simply replaces them. */
 static void
 add_default_bindings(struct sushi_config *cfg)
 {
@@ -563,9 +562,6 @@ add_default_bindings(struct sushi_config *cfg)
 	b->action = ACTION_CYCLE_FOCUS;
 }
 
-/* One pass over the file. When globals_only is set, bind/window lines are
- * ignored (used for the pre-pass that resolves mod/terminal/launcher before
- * the defaults are seeded); otherwise the full grammar is parsed. */
 static enum sushi_tri
 parse_tri(const char *s)
 {
@@ -680,6 +676,9 @@ parse_autostart_line(struct sushi_config *cfg, char **tok, int ntok)
 	wl_list_insert(cfg->autostart.prev, &a->link);
 }
 
+/* One pass over the file. When globals_only is set, bind/window lines are
+ * ignored (used for the pre-pass that resolves mod/terminal/launcher before
+ * the defaults are seeded). Otherwise the full grammar is parsed. */
 static void
 parse_stream(struct sushi_config *cfg, FILE *f, bool globals_only)
 {
@@ -746,7 +745,7 @@ parse_stream(struct sushi_config *cfg, FILE *f, bool globals_only)
 		}
 
 		/* Handled here rather than in parse_global_line(), which runs over
-		 * every line in both passes -- appending from there would add each
+		 * every line in both passes. Appending from there would add each
 		 * entry twice. */
 		if (!strcmp(tok[0], "autostart")) {
 			parse_autostart_line(cfg, tok, ntok);
@@ -973,7 +972,7 @@ config_default_path(void)
 	else
 		snprintf(dir, sizeof(dir), "%s/.config/sushi", getenv("HOME"));
 
-	mkdir(dir, 0755); /* best-effort; fine if it already exists */
+	mkdir(dir, 0755); /* best-effort, fine if it already exists */
 
 	char *path = malloc(strlen(dir) + strlen("/config") + 1);
 	sprintf(path, "%s/config", dir);

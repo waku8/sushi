@@ -1,7 +1,7 @@
-/* sushi: input.c -- libinput device configuration
+/* input.c: libinput device configuration
  *
  * swc hands the raw struct libinput_device to the window manager through
- * manager.new_device, so device settings are sushi's to apply; there is no
+ * manager.new_device, so device settings are sushi's to apply. There is no
  * swc-side API in the middle.
  *
  * Devices are kept in a list so a config reload can re-apply to hardware that
@@ -230,7 +230,7 @@ configure(struct libinput_device *device, const struct sushi_config *cfg)
 	struct sushi_input_rule *r;
 
 	/* In file order, so a later block overrides an earlier one for a device
-	 * that matches both -- "*" first, then a narrowing "type:touchpad". */
+	 * that matches both: "*" first, then a narrowing "type:touchpad". */
 	wl_list_for_each(r, &cfg->input_rules, link) {
 		if (matches(r->pattern, device)) {
 			apply_rule(r, device, strcmp(r->pattern, "*") != 0);
@@ -244,7 +244,7 @@ input_device_added(struct libinput_device *device)
 	struct sushi_device *entry = calloc(1, sizeof(*entry));
 
 	if (entry) {
-		/* Referenced so the entry stays valid for later reloads; libinput
+		/* Referenced so the entry stays valid for later reloads. libinput
 		 * owns the device otherwise. */
 		entry->device = libinput_device_ref(device);
 		wl_list_insert(&sushi.devices, &entry->link);

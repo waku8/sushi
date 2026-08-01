@@ -1,8 +1,8 @@
-/* sushi: cursor.c -- Plan 9 "nein" cursor theme
+/* cursor.c: Plan 9 "nein" cursor theme
  *
  * Pixel data adapted from Plan 9 cursor bitmaps (whitearrow, box, cross,
  * sight, and the up/down resize glyphs). The original generated form baked
- * two colors (NEIN_IN / NEIN_OUT) in as compile-time macros; here the same
+ * two colors (NEIN_IN / NEIN_OUT) in as compile-time macros. Here the same
  * shapes are kept as a compact two-tone + transparent pattern (0 =
  * transparent, 1 = "in", 2 = "out") and rendered to ARGB8888 at runtime
  * against sushi.config's cursor_color_in/cursor_color_out, so the colors
@@ -130,9 +130,9 @@ static const struct nein_cursor_meta nein_cursor_metadata[NEIN_CURSOR_COUNT] = {
 	[NEIN_CURSOR_B] = { SWC_CURSOR_DOWN, 16, 10, 7, 3, 1184 },
 };
 
-/* swc_set_cursor_image() keeps the pointer, it doesn't copy -- these must
- * stay alive for as long as they're in use, so we hold on to the previous
- * generation only long enough to free it right after it's been replaced. */
+/* swc_set_cursor_image() keeps the pointer, it doesn't copy, so these must
+ * stay alive for as long as they're in use. The previous generation is kept
+ * around only long enough to free it right after it's been replaced. */
 static uint32_t *nein_cursor_buffers[NEIN_CURSOR_COUNT];
 
 static uint32_t *
@@ -162,13 +162,11 @@ cursor_apply(const struct sushi_config *cfg)
 	if (!cfg->cursor_theme) {
 		/* swc_set_cursor_mode(CLIENT) only governs whether a client's own
 		 * cursor surface is honored *while the pointer is over that
-		 * client*; the compositor image last registered via
+		 * client*. The compositor image last registered via
 		 * swc_set_cursor_image() keeps showing wherever there's no client
-		 * surface (e.g. bare desktop) regardless of mode. Without this,
-		 * disabling the theme after it was ever on (which is the only way
-		 * to reach this line after startup, since config reloads are the
-		 * only way cursor_theme can change) leaves the nein art showing
-		 * there forever. */
+		 * surface (e.g. bare desktop) regardless of mode. Without clearing
+		 * it here too, a reload that turns the theme off after it was on
+		 * would leave the nein art showing there forever. */
 		for (int i = 0; i < NEIN_CURSOR_COUNT; i++) {
 			swc_clear_cursor_image(nein_cursor_metadata[i].swc_kind);
 			free(nein_cursor_buffers[i]);

@@ -1,4 +1,4 @@
-/* sushi: input.h -- libinput device configuration */
+/* input.h: libinput device configuration */
 #ifndef SUSHI_INPUT_H
 #define SUSHI_INPUT_H
 

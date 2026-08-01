@@ -1,8 +1,7 @@
-/* sushi: config.h
+/* config.h
  *
  * Hand-written parser for sushi's config file. No external parsing
- * dependencies (no KDL/TOML/YAML libs) -- just a small line-oriented
- * grammar:
+ * dependencies (no KDL/TOML/YAML libs), just a small line-oriented grammar:
  *
  *   mod logo
  *   terminal foot
@@ -16,7 +15,7 @@
  *       workspace 2
  *   }
  *
- * See doc/sushi.conf for the full default config and grammar reference.
+ * See doc/config for the full default config and grammar reference.
  */
 #ifndef SUSHI_CONFIG_H
 #define SUSHI_CONFIG_H
@@ -110,7 +109,7 @@ struct sushi_input_rule {
 struct sushi_rule {
 	struct wl_list link;
 
-	char *pattern; /* app_id match; trailing '*' means prefix match */
+	char *pattern; /* exact app_id match, or a prefix if it ends in '*' */
 
 	bool has_workspace;
 	int workspace;
@@ -124,26 +123,26 @@ struct sushi_config {
 	uint32_t mod;
 	char *terminal;
 	char *launcher;
-	char *theme; /* "flat", "classic", or "simple" */
+	char *theme; /* "flat", "classic", "simple", "love", or "win95" */
 	int border_width;
 	int title_height;
-	char *title_font; /* fontconfig pattern, e.g. "monospace:size=10"; NULL = swc's built-in default */
+	char *title_font; /* fontconfig pattern like "monospace:size=10". NULL = swc's default */
 
-	/* Used for both the title bar text and the title bar button glyphs
-	 * (themes that have any), so they're always the same color by
-	 * construction. */
+	/* Title bar text color. Also used for the button glyphs on themes that
+	 * have them, except win95, which draws its glyphs in a fixed color as
+	 * part of its own hardcoded palette. */
 	uint32_t text_color_active;
 	uint32_t text_color_inactive;
 
 	/* Border/title bar background. flat/classic/simple/love all share one
-	 * color for both (no separate border frame color); win95 ignores these
+	 * color for both (no separate border frame color). win95 ignores these
 	 * entirely and keeps its own fixed 3D palette. */
 	uint32_t border_color_active;
 	uint32_t border_color_inactive;
 
 	/* XKB keymap selection. NULL means "leave it to libxkbcommon", which
 	 * falls back to the XKB_DEFAULT_* environment variables and then to
-	 * us/pc105 -- so an unset key changes nothing. */
+	 * us/pc105, so an unset key changes nothing. */
 	char *kb_layout;  /* "us", or "us,br" for a switchable pair */
 	char *kb_variant; /* "intl", "altgr-intl", ... */
 	char *kb_options; /* "grp:alt_shift_toggle,ctrl:nocaps", ... */
@@ -163,8 +162,8 @@ struct sushi_config {
 
 	/* Launched once at startup and deliberately not on reload: a config
 	 * reload should not open a second terminal every time the file is
-	 * saved. struct sushi_autostart::link */
-	struct wl_list autostart;
+	 * saved. */
+	struct wl_list autostart; /* struct sushi_autostart::link */
 
 	struct wl_list input_rules; /* struct sushi_input_rule::link */
 };
@@ -174,10 +173,10 @@ struct sushi_config {
  * doesn't exist). */
 struct sushi_config *config_load(const char *path);
 
-/* Parses `path` reporting everything the runtime loader ignores silently --
+/* Parses `path` reporting everything the runtime loader ignores silently:
  * unknown keys, bad values, unclosed blocks, commands not on PATH, a layout
- * xkbcommon cannot build -- and says which file was actually read. Prints to
- * stdout; returns false if anything is outright wrong. */
+ * xkbcommon cannot build. Also says which file was actually read. Prints to
+ * stdout and returns false if anything is outright wrong. */
 bool config_validate(const char *path);
 void config_free(struct sushi_config *cfg);
 

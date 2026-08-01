@@ -1,4 +1,4 @@
-/* sushi: sushi.h -- shared state */
+/* sushi.h: shared state */
 #ifndef SUSHI_H
 #define SUSHI_H
 
@@ -104,7 +104,7 @@ void window_cycle_focus(void);
 /* Tries to center against real geometry and, the first time that succeeds
  * (or once the grace-period timer from window_place_new() times out),
  * performs the window's one-time initial show+focus. Safe to call
- * repeatedly (e.g. from title_changed/app_id_changed) -- a no-op once
+ * repeatedly (e.g. from title_changed/app_id_changed), a no-op once
  * already revealed. */
 void window_maybe_reveal(struct sushi_window *win);
 

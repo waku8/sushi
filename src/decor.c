@@ -1,24 +1,24 @@
-/* sushi: decor.c -- theme engine (flat / classic / simple / love / win95)
+/* decor.c: theme engine (flat / classic / simple / love / win95)
  *
  * Builds swc_decor structs (border + title bar + button glyphs) as raw
  * ARGB8888 pixel blocks. All rendering here is a tiny hand-rolled
- * rectangle+glyph rasterizer -- no font/drawing library needed, since
+ * rectangle+glyph rasterizer, no font/drawing library needed, since
  * swc's decor engine already renders the title text itself (via a
  * fontconfig pattern string) and just wants pixel blocks for the button
  * art.
  *
  * `flat`: title bar, no buttons.
- * `classic`: `flat`'s colors (no separate border frame color -- the border
+ * `classic`: `flat`'s colors (no separate border frame color, the border
  * is just the title color) plus three clickable glyphs: minimize,
  * maximize/restore, and close, in that left-to-right order (close
  * outermost).
- * `simple`: no title bar at all, ever -- just the border (if enabled).
+ * `simple`: no title bar at all, ever, just the border (if enabled).
  * `love`: like `classic`, but all three buttons show the same heart glyph.
  * `win95`: Chicago-style beveled gray frame/buttons, navy title bar, a
  * little window icon at the top-left. Unlike the other themes it has its
- * own hardcoded 3D palette (border/title bg aren't cfg colors) since the
- * whole point is the bevel look; only the title text/glyph color still
- * comes from text-color-active/inactive.
+ * own hardcoded 3D palette (border/title bg, button glyphs) since the
+ * whole point is the bevel look. Only the title text still comes from
+ * text-color-active/inactive.
  */
 #include "decor.h"
 
@@ -27,7 +27,7 @@
 
 #include <swc.h>
 
-/* win95's own fixed palette -- see the header comment. flat/classic/simple/
+/* win95's own fixed palette, see the header comment. flat/classic/simple/
  * love instead take their border/title color from cfg (border-color-active/
  * border-color-inactive). */
 static const uint32_t WIN95_FACE = 0xFFC0C0C0;
@@ -77,13 +77,13 @@ theme_has_buttons(enum theme_id theme)
 
 /* Fixed per-button cell width, independent of title_height: at
  * title_height's default of 18, GLYPH_W left only a 1px margin on each
- * side, so the min/max/close icons ended up nearly touching -- looked like
+ * side, so the min/max/close icons ended up nearly touching, looking like
  * they were overlapping. This gives each icon a comfortable, consistent
  * margin regardless of title_height. */
 #define BUTTON_W (GLYPH_W + 6)
 
-/* Fixed left inset for the title text, the same for every theme -- see the
- * offset_x comment in decor_apply(). */
+/* Fixed left inset for the title text, the same for every theme (see the
+ * offset_x comment in decor_apply()). */
 #define TITLE_LEFT_MARGIN 6
 
 static const uint8_t GLYPH_MIN[GLYPH_H][GLYPH_W] = {
@@ -276,7 +276,7 @@ draw_glyph95(uint32_t *buf, int bw, int bh, int x0, int y0,
 }
 
 /* win95's 3D bevel: raised gray frame/buttons with a navy title band.
- * These helpers only ever compute the "at rest" (not pressed) look --
+ * These helpers only ever compute the "at rest" (not pressed) look:
  * sushi's decor is rebuilt on focus/state change, not per mouse-move, so
  * there's no live press feedback for any theme. Each block below is
  * computed from purely local coordinates (never from the window's overall
@@ -366,7 +366,7 @@ win95_button_bevel(uint32_t *buf, int bufw, int bufh, int x0, int y0, int w, int
 }
 
 /* A tiny "little window" pictogram: black outline, white body, navy title
- * strip -- this is the app icon the win95 theme shows at the top-left. */
+ * strip. This is the app icon the win95 theme shows at the top-left. */
 static void
 draw_win95_appicon(uint32_t *buf, int bufw, int bufh, int x0, int y0, int size)
 {
@@ -531,7 +531,7 @@ win95_build(bool active, bool maximized, int bw, int th,
 /* The top-right corner block: title-bg fill plus, if the theme has buttons,
  * the button glyphs in a row, close outermost (the usual convention).
  * Border and title share one color, so unlike a themed border/frame this
- * needs no separate tiling for the rest of the top edge; decor.color alone
+ * needs no separate tiling for the rest of the top edge. decor.color alone
  * covers that uniformly. */
 static uint32_t *
 build_top_right(const struct sushi_config *cfg, enum theme_id theme, bool active,
@@ -553,7 +553,7 @@ build_top_right(const struct sushi_config *cfg, enum theme_id theme, bool active
 
 	/* swc vertically centers the title text within the *whole* top decor
 	 * band (border + title, i.e. this tile's full height h), not just the
-	 * title_height portion below the border -- center the glyphs the same
+	 * title_height portion below the border. Center the glyphs the same
 	 * way so their vertical middle lines up with the text's. */
 	for (int i = 0; i < nbuttons; i++) {
 		int bx = i * btn;
@@ -585,7 +585,7 @@ decor_apply(struct sushi_window *win)
 	bool has_buttons = theme_has_buttons(theme);
 
 	/* A fullscreen window has no decoration, and this runs on every focus
-	 * and title change -- a browser retitling itself as a video plays would
+	 * and title change: a browser retitling itself as a video plays would
 	 * otherwise hand its own decoration back mid-fullscreen. The insets go
 	 * with it, so the hit-tests do not reserve a title bar band that is not
 	 * on screen. */
@@ -599,7 +599,7 @@ decor_apply(struct sushi_window *win)
 	}
 
 	/* `simple` never shows a title bar, regardless of any per-app_id
-	 * "title" rule; the other themes still honor that rule normally. */
+	 * "title" rule. The other themes still honor that rule normally. */
 	bool show_title = win->decor_title && theme_has_titlebar(theme);
 
 	int border_width = win->decor_border ? cfg->border_width : 0;
@@ -678,7 +678,7 @@ decor_apply(struct sushi_window *win)
 		decor.title.string = win->title && *win->title ? win->title
 		                     : (win->app_id ? win->app_id : "");
 		decor.title.color = active ? cfg->text_color_active : cfg->text_color_inactive;
-		decor.title.font = cfg->title_font; /* NULL = swc's built-in default */
+		decor.title.font = cfg->title_font;
 		/* swc only exposes symmetric padding (it insets both the start
 		 * position and the truncation width by the same amount), so a
 		 * padding wide enough to keep long titles from running under the

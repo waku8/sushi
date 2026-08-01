@@ -1,4 +1,4 @@
-/* sushi: window.c -- floating window management, workspaces, focus */
+/* window.c: floating window management, workspaces, focus */
 #include "sushi.h"
 #include "decor.h"
 
@@ -57,7 +57,7 @@ window_refresh_decor(struct sushi_window *win)
 }
 
 /* Used only when the real screen/window geometry isn't known yet (see
- * below) -- just enough to avoid parking a window at some arbitrary corner
+ * below), just enough to avoid parking a window at some arbitrary corner
  * while we wait for the real numbers. */
 #define FALLBACK_SCREEN_W 1920
 #define FALLBACK_SCREEN_H 1080
@@ -74,7 +74,7 @@ window_center(struct sushi_window *win)
 	} else if (sushi.active_screen && sushi.active_screen->geometry.width &&
 	          sushi.active_screen->geometry.height) {
 		/* usable_geometry not computed yet (e.g. no panels have reserved
-		 * space so far) -- the full screen geometry is still accurate. */
+		 * space so far). The full screen geometry is still accurate. */
 		usable = sushi.active_screen->geometry;
 	} else {
 		usable.x = usable.y = 0;
@@ -87,7 +87,7 @@ window_center(struct sushi_window *win)
 	if (!have_geom) {
 		/* The client hasn't committed real content yet, so its final size
 		 * is unknown. Center using a guessed size now rather than leaving
-		 * the window wherever swc defaults it -- window_place_new() and
+		 * the window wherever swc defaults it. window_place_new() and
 		 * the title/app_id-changed callbacks retry this once the real
 		 * geometry shows up (see win->positioned). */
 		geom.width = FALLBACK_WINDOW_W;
@@ -110,7 +110,7 @@ void
 window_raise(struct sushi_window *win)
 {
 	/* swc_window_stack() only moves a window one step per call, not all
-	 * the way to the front -- there's no "raise to top" in its API, so
+	 * the way to the front: there's no "raise to top" in its API, so
 	 * step it up once per other window, an upper bound on how many are
 	 * ever stacked above it. */
 	int steps = 0;
@@ -249,7 +249,7 @@ workspace_switch(int workspace)
 
 	/* Bottom-up. swc_window_show() raises the window it reveals, so showing
 	 * them in list order (which is top-first) would leave the bottom-most
-	 * one raised last and on top -- inverting the stack on every switch.
+	 * one raised last and on top, inverting the stack on every switch.
 	 * Revealing from the bottom means each window is raised over the ones
 	 * already shown, reproducing the order the list describes.
 	 *
@@ -279,8 +279,8 @@ window_at(int32_t x, int32_t y)
 }
 
 /* swc has no "client committed its first real buffer" callback, so
- * window_place_new() can't just wait for a specific event -- it polls
- * window_center() instead. REVEAL_POLL_MS is how often it retries; most
+ * window_place_new() can't just wait for a specific event. It polls
+ * window_center() instead. REVEAL_POLL_MS is how often it retries. Most
  * clients have real geometry within a poll or two of mapping, so this
  * keeps the common case fast. REVEAL_GRACE_MS is the total time to poll
  * before giving up and revealing the window at its guessed position
